@@ -96,7 +96,7 @@ Threads, Triggers, and Sources belong to the automation-trigger layer; this prop
 ### Memory
 
 - Each bot has a Markdown memory with sections for standing rules, preferences, facts, and a dated work log.
-- Writes go through one tool that records provenance and time; the panel shows every entry, and a user can edit or delete one.
+- Writes go through one tool that records the source Session and the time; the panel shows every entry, and a user can edit or delete one.
 - Summaries are labeled as snapshots, never promoted silently into facts.
 
 ### Panel
