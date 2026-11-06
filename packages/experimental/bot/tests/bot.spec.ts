@@ -1,0 +1,184 @@
+import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { SessionId } from '@deepseek-ai/dsh-session'
+import Storage from '@deepseek-ai/dsh-storage'
+import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
+import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
+import BotRegistry, { botRecordSchema, ticketRecordSchema, workerInstruction } from '../src/index.ts'
+import type { BotId, TicketId } from '../src/index.ts'
+
+const ROUTER = brandString<SessionId>('router-1')
+const WORKER = brandString<SessionId>('worker-1')
+
+/** Boot a context with real storage, the bot registry, and fake peer services. */
+async function harness() {
+  const ctx = new Context()
+  await ctx.plugin(Storage)
+  ctx.storage.backend.register('memory', new MemoryStorageBackend())
+  const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
+  ctx.storage.mount('domain', facility)
+  ctx.provide('storageDomain' as string, facility)
+  const followups: string[] = []
+  ctx.provide('tools' as string, { register: () => () => {} })
+  ctx.provide('agents' as string, {
+    create: async () => ({
+      agent: { session: { id: WORKER }, followup: () => {} },
+      dispose: async () => {},
+    }),
+    get: () => ({ followup: (message: { content: { type: string; text: string }[] }) => {
+      followups.push(message.content[0]?.text ?? '')
+    } }),
+  })
+  ctx.provide('agentDefaultModel' as string, { currentSelection: () => ({ provider: 'mock', model: 'mock' }) })
+  ctx.provide('sessionTitle' as string, { rename: () => {} })
+  ctx.provide('workspaceRegistry' as string, {
+    create: async (path: string) => ({
+      path,
+      attachSession: async () => {},
+      detachSession: async () => {},
+    }),
+  })
+  await ctx.plugin(BotRegistry)
+  return { ctx, followups }
+}
+
+describe('bot records', () => {
+  it('creates a bot bound to the calling Session and finds it again', async () => {
+    const { ctx } = await harness()
+    const bot = await ctx.bots.create({
+      name: 'reviewer',
+      job: 'Review pull requests',
+      workspace: '/tmp/work',
+      routerSession: ROUTER,
+    })
+    expect(ctx.bots.findByRouter(ROUTER)?.id).toBe(bot.id)
+    expect(ctx.bots.list().map(entry => entry.name)).toEqual(['reviewer'])
+  })
+
+  it('rejects a duplicate name in the same Session and a relative workspace', async () => {
+    const { ctx } = await harness()
+    const input = {
+      name: 'reviewer',
+      job: 'Review pull requests',
+      workspace: '/tmp/work',
+      routerSession: ROUTER,
+    }
+    await ctx.bots.create(input)
+    await expect(ctx.bots.create(input)).rejects.toThrow(/already owns/)
+    await expect(ctx.bots.create({ ...input, name: 'other', workspace: 'relative' }))
+      .rejects.toThrow(/absolute/)
+  })
+})
+
+describe('tickets', () => {
+  it('opens a ticket, launches a worker, and reports back to the router', async () => {
+    const { ctx, followups } = await harness()
+    await ctx.bots.create({
+      name: 'reviewer',
+      job: 'Review pull requests',
+      workspace: '/tmp/work',
+      routerSession: ROUTER,
+    })
+    const ticket = await ctx.bots.openTicket({
+      routerSession: ROUTER,
+      title: 'Review #12',
+      instruction: 'Review the diff and report.',
+    })
+    expect(ticket.stage).toBe('working')
+    const worker = ticket.workerSession
+    expect(worker).toMatch(/^bot-worker-/)
+
+    const reported = await ctx.bots.report(worker!, ticket.id, { stage: 'ready', summary: 'No blockers.' })
+    expect(reported.stage).toBe('ready')
+    expect(ctx.bots.ticketsOf(ticket.botId)).toHaveLength(1)
+    expect(followups).toEqual(['Ticket "Review #12" is ready: No blockers.'])
+  })
+
+  it('refuses a report from any Session other than the ticket worker', async () => {
+    const { ctx } = await harness()
+    await ctx.bots.create({
+      name: 'reviewer',
+      job: 'Review pull requests',
+      workspace: '/tmp/work',
+      routerSession: ROUTER,
+    })
+    const ticket = await ctx.bots.openTicket({
+      routerSession: ROUTER,
+      title: 'Review #12',
+      instruction: 'Review the diff and report.',
+    })
+    await expect(ctx.bots.report(ROUTER, ticket.id, { stage: 'ready', summary: 'done' }))
+      .rejects.toThrow(/only the worker Session/)
+  })
+
+  it('refuses to open a ticket when no bot is bound to the Session', async () => {
+    const { ctx } = await harness()
+    await expect(ctx.bots.openTicket({
+      routerSession: ROUTER,
+      title: 'Review #12',
+      instruction: 'Review the diff and report.',
+    })).rejects.toThrow(/call bot_create/)
+  })
+})
+
+describe('worker instructions', () => {
+  it('names the ticket, the instruction, and the report tool', () => {
+    const bot = {
+      id: brandString<BotId>('bot-1'),
+      name: 'reviewer',
+      job: 'Review pull requests',
+      workspace: '/tmp/work',
+      routerSession: ROUTER,
+      status: 'active' as const,
+      createdAt: '2026-11-06T00:00:00.000Z',
+      updatedAt: '2026-11-06T00:00:00.000Z',
+    }
+    const ticket = {
+      id: brandString<TicketId>('ticket-1'),
+      botId: bot.id,
+      title: 'Review #12',
+      instruction: 'Review the diff and report.',
+      stage: 'queued' as const,
+      routerSession: ROUTER,
+      createdAt: '2026-11-06T00:00:00.000Z',
+      updatedAt: '2026-11-06T00:00:00.000Z',
+    }
+    const text = workerInstruction(bot, ticket)
+    expect(text).toContain('ticket-1')
+    expect(text).toContain('Review the diff and report.')
+    expect(text).toContain('bot_report')
+  })
+})
+
+describe('stored record schemas', () => {
+  it('accepts a full bot record and rejects a bad status', () => {
+    const record = {
+      id: 'bot-1',
+      name: 'reviewer',
+      job: 'Review pull requests',
+      workspace: '/tmp/work',
+      routerSession: 'router-1',
+      status: 'active',
+      createdAt: '2026-11-06T00:00:00.000Z',
+      updatedAt: '2026-11-06T00:00:00.000Z',
+    }
+    expect(botRecordSchema.safeParse(record).success).toBe(true)
+    expect(botRecordSchema.safeParse({ ...record, status: 'sleeping' }).success).toBe(false)
+  })
+
+  it('rejects an unknown ticket stage', () => {
+    const record = {
+      id: 'ticket-1',
+      botId: 'bot-1',
+      title: 'Review #12',
+      instruction: 'Review the diff.',
+      stage: 'working',
+      routerSession: 'router-1',
+      createdAt: '2026-11-06T00:00:00.000Z',
+      updatedAt: '2026-11-06T00:00:00.000Z',
+    }
+    expect(ticketRecordSchema.safeParse(record).success).toBe(true)
+    expect(ticketRecordSchema.safeParse({ ...record, stage: 'done' }).success).toBe(false)
+  })
+})
