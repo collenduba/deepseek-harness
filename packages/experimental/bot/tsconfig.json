@@ -36,6 +36,12 @@
       "path": "../../workspace/workspace"
     },
     {
+      "path": "../../preset/agent-preset-registry"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
       "path": "../../util/brand"
     }
   ]

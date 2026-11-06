@@ -1,0 +1,65 @@
+# Bot composition: the durable bot service plus two agent presets.
+#
+# `bot-router` is the conversation that owns bots; `bot-worker` is the
+# unattended Session a ticket runs in. The worker preset deliberately omits
+# every tool that asks a person, presents UI, changes the profile, or schedules
+# work, so a worker cannot block on input it will never receive.
+- insert:
+    - id: bot
+      name: '@deepseek-ai/dsh-bot'
+
+    - id: preset-bot-router
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: bot-router
+        name: Bot router
+        description: Owns bots and routes their work.
+        order: 20
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: You are a bot router. You own durable bots in this conversation. Give work to a bot with bot_open_ticket and write each instruction so the worker can act without asking questions. Do not do the work yourself.
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+
+    - id: preset-bot-worker
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: bot-worker
+        name: Bot worker
+        description: Executes one ticket and reports its outcome.
+        order: 21
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: You are the worker for one ticket. Work only on the instruction you were given, verify the result before you report it, and finish by calling bot_report with the ticket id and one of ready, waiting, blocked, or failed.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'

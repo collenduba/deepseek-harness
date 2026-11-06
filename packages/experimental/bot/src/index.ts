@@ -18,6 +18,7 @@ import type {} from '@deepseek-ai/dsh-session-title'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-workspace'
+import { botProjection } from './projection.ts'
 import { botDomainSpec } from './spec.ts'
 import type {
   BotId,
@@ -32,6 +33,8 @@ import { launchWorker } from './worker.ts'
 
 export * from './types.ts'
 export { botDomainSpec, botRecordSchema, ticketRecordSchema } from './spec.ts'
+export { botProjection } from './projection.ts'
+export type { BotProjectionState } from './projection.ts'
 export { launchWorker, workerInstruction } from './worker.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -66,6 +69,7 @@ export class BotRegistry extends Service {
     'agents',
     'agentDefaultModel',
     'sessionTitle',
+    'sessionProjections',
     'workspaceRegistry',
   ]
 
@@ -82,6 +86,7 @@ export class BotRegistry extends Service {
     this.ctx.effect(() => () => domain.close(), 'bot.domainClose')
     this.botsTable = domain.table('bots')
     this.ticketsTable = domain.table('tickets')
+    await this.ctx.sessionProjections.register(botProjection)
     this.ctx.effect(() => this.registerTools(), 'bot.tools')
   }
 

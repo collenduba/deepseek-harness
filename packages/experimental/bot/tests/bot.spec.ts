@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { brandString } from '@deepseek-ai/dsh-brand'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import { brandNumber, brandString } from '@deepseek-ai/dsh-brand'
+import { SessionLogOffset } from '@deepseek-ai/dsh-session'
+import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
+import { createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import BotRegistry, { botRecordSchema, ticketRecordSchema, workerInstruction } from '../src/index.ts'
-import type { BotId, TicketId } from '../src/index.ts'
+import BotRegistry, { botProjection, botRecordSchema, ticketRecordSchema, workerInstruction } from '../src/index.ts'
+import type { BotId, BotProjectionState, TicketId } from '../src/index.ts'
 
 const ROUTER = brandString<SessionId>('router-1')
 const WORKER = brandString<SessionId>('worker-1')
@@ -32,6 +34,7 @@ async function harness() {
   })
   ctx.provide('agentDefaultModel' as string, { currentSelection: () => ({ provider: 'mock', model: 'mock' }) })
   ctx.provide('sessionTitle' as string, { rename: () => {} })
+  ctx.provide('sessionProjections' as string, { register: async () => ({}) })
   ctx.provide('workspaceRegistry' as string, {
     create: async (path: string) => ({
       path,
@@ -180,5 +183,86 @@ describe('stored record schemas', () => {
     }
     expect(ticketRecordSchema.safeParse(record).success).toBe(true)
     expect(ticketRecordSchema.safeParse({ ...record, stage: 'done' }).success).toBe(false)
+  })
+})
+
+describe('bot projection', () => {
+  const event = (seq: number): number => seq
+
+  it('folds the bot, its ticket, and the report stage', () => {
+    const call = (seq: number, callId: string, name: string, args: unknown) => ({
+      type: 'tool/call' as const,
+      seq: brandNumber<SessionSeq>(seq),
+      time: 0,
+      data: { turn: 1, step: 1, callId: brandString<ToolCallId>(callId), name, arguments: JSON.stringify(args) },
+    })
+    const result = (seq: number, callId: string, value: unknown, isError = false) => ({
+      type: 'tool/result' as const,
+      seq: brandNumber<SessionSeq>(seq),
+      time: 0,
+      surfaceOp: 'append' as const,
+      data: {
+        turn: 1,
+        step: 1,
+        message: createToolResultMessage({
+          callId: brandString<ToolCallId>(callId),
+          content: [{ type: 'text', text: JSON.stringify(value) }],
+          isError,
+        }),
+      },
+    })
+    let state: BotProjectionState = {
+      inheritedEventCount: SessionLogOffset(0),
+      view: { bot: null, tickets: {} },
+      pending: {},
+    }
+    state = botProjection.apply(state, call(event(1), 'c1', 'bot_create', { name: 'reviewer', job: 'Review', workspace: '/tmp/w' }))
+    state = botProjection.apply(state, result(2, 'c1', { botId: 'bot-1', name: 'reviewer', workspace: '/tmp/w' }))
+    expect(state.view.bot).toEqual({ botId: 'bot-1', name: 'reviewer', workspace: '/tmp/w' })
+
+    state = botProjection.apply(state, call(event(3), 'c2', 'bot_open_ticket', { title: 'Review #12', instruction: 'Review it.' }))
+    state = botProjection.apply(state, result(4, 'c2', { ticketId: 'ticket-1', stage: 'working', workerSession: 'worker-1' }))
+    expect(state.view.tickets['ticket-1']).toMatchObject({ title: 'Review #12', stage: 'working', workerSession: 'worker-1' })
+
+    state = botProjection.apply(state, call(event(5), 'c3', 'bot_report', { ticket_id: 'ticket-1', stage: 'ready', summary: 'Done.' }))
+    state = botProjection.apply(state, result(6, 'c3', { ticketId: 'ticket-1', stage: 'ready' }))
+    expect(state.view.tickets['ticket-1']).toMatchObject({ stage: 'ready', summary: 'Done.' })
+  })
+
+  it('ignores a failed result and an unrelated call', () => {
+    const state: BotProjectionState = {
+      inheritedEventCount: SessionLogOffset(0),
+      view: { bot: null, tickets: {} },
+      pending: {},
+    }
+    const call = {
+      type: 'tool/call' as const,
+      seq: brandNumber<SessionSeq>(1),
+      time: 0,
+      data: {
+        turn: 1,
+        step: 1,
+        callId: brandString<ToolCallId>('c1'),
+        name: 'bot_create',
+        arguments: JSON.stringify({ name: 'reviewer', job: 'Review', workspace: '/tmp/w' }),
+      },
+    }
+    const pending = botProjection.apply(state, call)
+    const failed = {
+      type: 'tool/result' as const,
+      seq: brandNumber<SessionSeq>(2),
+      time: 0,
+      surfaceOp: 'append' as const,
+      data: {
+        turn: 1,
+        step: 1,
+        message: createToolResultMessage({
+          callId: brandString<ToolCallId>('c1'),
+          content: [{ type: 'text', text: '{"error":"nope"}' }],
+          isError: true,
+        }),
+      },
+    }
+    expect(botProjection.apply(pending, failed).view.bot).toBeNull()
   })
 })

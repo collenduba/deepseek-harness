@@ -11,6 +11,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-session-title'
@@ -75,11 +76,33 @@ export async function launchWorker(
 ): Promise<SessionId> {
   const workspace = await ctx.workspaceRegistry.create(bot.workspace)
   const sessionId = brandString<SessionId>(`bot-worker-${randomUUID()}`)
-  const handle = await ctx.agents.create({
-    sessionId,
-    meta: { cwd: workspace.path },
-    agentOptions: ctx.agentDefaultModel.currentSelection(),
-  })
+  let presetId: string | undefined
+  let mountPreset: ((agentCtx: Context) => Promise<void>) | undefined
+  if (bot.preset !== undefined) {
+    const presets = ctx.get('agentPresets')
+    if (presets === undefined) {
+      throw new Error(`bot '${bot.name}' names agent preset '${bot.preset}', but no agent-preset registry is mounted`)
+    }
+    const resolved = await presets.resolve(bot.preset)
+    presetId = resolved.id
+    const registry = presets
+    mountPreset = async (agentCtx: Context) => { await registry.mount(agentCtx, resolved.id) }
+  }
+  let handle
+  if (presetId === undefined || mountPreset === undefined) {
+    handle = await ctx.agents.create({
+      sessionId,
+      meta: { cwd: workspace.path },
+      agentOptions: ctx.agentDefaultModel.currentSelection(),
+    })
+  } else {
+    handle = await ctx.agents.create({
+      sessionId,
+      meta: { cwd: workspace.path, agentPreset: presetId },
+      agentOptions: ctx.agentDefaultModel.currentSelection(),
+      setup: mountPreset,
+    })
+  }
   let attached = false
   try {
     await workspace.attachSession(sessionId)

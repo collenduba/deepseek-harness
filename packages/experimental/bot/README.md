@@ -71,11 +71,11 @@ The schemas are static for the mount lifetime. A ticket result appends to its co
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- There is no panel or attention surface yet; the bot is usable through its tools and its Session.
+- The `bot` Session projection is registered, but no client panel consumes it yet; the bot is usable through its tools and its Session.
 - Event sources, observe and auto modes, approval records, memory, and capability grants are not implemented.
 - One worker runs per ticket with no concurrency limit or slot accounting.
 - A report reaches the router only while that Session is live; otherwise the ticket keeps the stage and summary.
-- The optional `preset` is stored but not mounted yet; workers currently run under the deployment default preset.
+- A named `preset` must exist in the composition; a missing agent-preset registry fails the launch with an explicit error.
 - The four schemas are not yet in the generated tool catalog because the catalog boots tool plugins directly and this package registers them from a service.
 
 <a id="dev-note"></a>
