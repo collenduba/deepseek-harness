@@ -28,6 +28,7 @@ import type {
   TicketId,
   TicketRecord,
   TicketReport,
+  TicketStage,
 } from './types.ts'
 import { launchWorker } from './worker.ts'
 
@@ -235,6 +236,7 @@ export class BotRegistry extends Service {
           ticketId: ticket.id,
           form: 'notice',
           summary,
+          stage: stage as TicketStage,
         },
       }))
     } catch (error: unknown) {

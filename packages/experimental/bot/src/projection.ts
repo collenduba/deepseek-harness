@@ -106,6 +106,25 @@ export const botProjection: BotProjectionDefinition = {
     if (event.type === 'turn/start') {
       return Object.keys(state.pending).length === 0 ? state : { ...state, pending: {} }
     }
+    if (event.type === 'user/message') {
+      const source = event.data.source
+      if (source.kind !== 'bot' || source.form !== 'notice') return state
+      const ticketId = source.ticketId
+      const stage = source.stage
+      if (ticketId === undefined || stage === undefined) return state
+      const current = state.view.tickets[ticketId]
+      if (current === undefined) return state
+      return {
+        ...state,
+        view: {
+          ...state.view,
+          tickets: {
+            ...state.view.tickets,
+            [ticketId]: { ...current, stage, summary: source.summary },
+          },
+        },
+      }
+    }
     if (event.type === 'tool/call') {
       if (!BOT_TOOLS.has(event.data.name)) return state
       let args: Record<string, unknown>

@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { brandNumber, brandString } from '@deepseek-ai/dsh-brand'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
-import { createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
@@ -227,6 +227,26 @@ describe('bot projection', () => {
     state = botProjection.apply(state, call(event(5), 'c3', 'bot_report', { ticket_id: 'ticket-1', stage: 'ready', summary: 'Done.' }))
     state = botProjection.apply(state, result(6, 'c3', { ticketId: 'ticket-1', stage: 'ready' }))
     expect(state.view.tickets['ticket-1']).toMatchObject({ stage: 'ready', summary: 'Done.' })
+
+    // A worker reports from its own Session; the notice it sends here carries the stage.
+    state = botProjection.apply(state, {
+      type: 'user/message',
+      seq: brandNumber<SessionSeq>(7),
+      time: 0,
+      surfaceOp: 'append',
+      data: createUserMessage({
+        content: [{ type: 'text', text: 'Ticket "Review #12" is blocked: Need input.' }],
+        source: {
+          kind: 'bot',
+          botId: brandString<BotId>('bot-1'),
+          ticketId: brandString<TicketId>('ticket-1'),
+          form: 'notice',
+          summary: 'Need input.',
+          stage: 'blocked',
+        },
+      }),
+    })
+    expect(state.view.tickets['ticket-1']).toMatchObject({ stage: 'blocked', summary: 'Need input.' })
   })
 
   it('ignores a failed result and an unrelated call', () => {

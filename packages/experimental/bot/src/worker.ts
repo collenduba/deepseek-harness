@@ -16,7 +16,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-workspace'
-import type { BotId, BotRecord, TicketId, TicketRecord } from './types.ts'
+import type { BotId, BotRecord, TicketId, TicketRecord, TicketStage } from './types.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -27,6 +27,8 @@ declare module '@deepseek-ai/dsh-llm' {
       readonly ticketId?: TicketId
       readonly form: 'instructions' | 'notice'
       readonly summary: string
+      /** Reported stage, present on a notice the router receives. */
+      readonly stage?: TicketStage
     }
   }
 }
