@@ -34,7 +34,7 @@ import { launchWorker } from './worker.ts'
 export * from './types.ts'
 export { botDomainSpec, botRecordSchema, ticketRecordSchema } from './spec.ts'
 export { botProjection } from './projection.ts'
-export type { BotProjectionState } from './projection.ts'
+export type { BotProjectionState, BotView } from './projection.ts'
 export { launchWorker, workerInstruction } from './worker.ts'
 
 declare module '@deepseek-ai/cordis' {

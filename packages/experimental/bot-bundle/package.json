@@ -30,7 +30,8 @@
   "license": "MIT",
   "dependencies": {
     "@deepseek-ai/dsh-agent-preset": "workspace:*",
-    "@deepseek-ai/dsh-bot": "workspace:*"
+    "@deepseek-ai/dsh-bot": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-bot": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~"

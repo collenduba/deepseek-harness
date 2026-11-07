@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-把 `@deepseek-ai/dsh-bot` 与两个 agent preset 组合在一起。`bot-router` 是持有 Bot 的对话；`bot-worker` 是工单运行时的无人值守组合。部署需要同时提供两者时安装本 bundle。
+把 `@deepseek-ai/dsh-bot`、两个 agent preset 与 Bot 状态条组合在一起。`bot-router` 是持有 Bot 的对话；`bot-worker` 是工单运行时的无人值守组合；`@deepseek-ai/dsh-client-ui-bot` 在输入框上方显示绑定的 Bot 与工单数量。
 
 ## 目录
 
@@ -55,6 +55,7 @@ bundle 自身不增加请求内容。为会话选择 `bot-worker` 会建立不�
 - preset 可选但不强制：`bot_create` 绑定它运行所在的会话，因此路由 preset 是约定而不是门禁。
 - 还没有禁止等待的守卫；路由仍可能运行阻塞的 shell 命令。
 - 执行 preset 按设计省略 Web、子智能体、调度和展示工具；部署需要时在派生 preset 中加回。
+- 状态条只做汇总；它不列出工单，也不打开执行会话。
 
 <a id="dev-note"></a>
 ### 开发备注
