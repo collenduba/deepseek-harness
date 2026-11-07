@@ -76,7 +76,7 @@ The schemas are static for the mount lifetime. A ticket result appends to its co
 - One worker runs per ticket with no concurrency limit or slot accounting.
 - A report reaches the router only while that Session is live; otherwise the ticket keeps the stage and summary.
 - A named `preset` must exist in the composition; a missing agent-preset registry fails the launch with an explicit error.
-- The four schemas are not yet in the generated tool catalog because the catalog boots tool plugins directly and this package registers them from a service.
+- The generated tool catalog mounts this package with a stub storage domain, so the catalog documents the schemas but not the records the tools write.
 
 <a id="dev-note"></a>
 ### Dev Note

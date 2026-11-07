@@ -9,8 +9,8 @@
   en: 6cc2cd9ced70bb09
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: 7b5b99bcc5cd46f4
-  zh: c1697f88326440ff
+  en: ff2346414b515b59
+  zh: 6d7b9740dc312c38
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762
@@ -54,8 +54,23 @@
   en: 4910ab327694ee97
   zh: 17e79e4366cb636d
 /tool-schema-catalog/deepseek-ai-dsh-experimental-browser-use-stagehand-native/stagehand-tabs:
-  en: a0d5b9b891358120
+  en: 5d72b5993507f651
   zh: 25793a62709770b5
+/tool-schema-catalog/deepseek-ai-dsh-bot:
+  en: 1bd32335c1a42939
+  zh: 1bd32335c1a42939
+/tool-schema-catalog/deepseek-ai-dsh-bot/bot-create:
+  en: e549b56c1c95db54
+  zh: 6ff98d9afad48533
+/tool-schema-catalog/deepseek-ai-dsh-bot/bot-list:
+  en: 6379468f84b20a83
+  zh: 51d1295096210629
+/tool-schema-catalog/deepseek-ai-dsh-bot/bot-open-ticket:
+  en: 8e007f768a997986
+  zh: 5c92ce46085c37c7
+/tool-schema-catalog/deepseek-ai-dsh-bot/bot-report:
+  en: 7abe539f6336d352
+  zh: bc145595d74c659b
 /tool-schema-catalog/deepseek-ai-dsh-action-cards:
   en: 60c9df6ffda98a1d
   zh: 60c9df6ffda98a1d

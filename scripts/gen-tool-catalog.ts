@@ -19,6 +19,7 @@ import SessionPersistence from '@deepseek-ai/dsh-session-persistence'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SqliteSessionQueryEngine from '@deepseek-ai/dsh-session-query-sqlite'
 import GoalService from '@deepseek-ai/dsh-goal'
+import BotRegistry from '@deepseek-ai/dsh-bot'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { NativeToolExecutor } from '@deepseek-ai/dsh-tool-executor-native'
@@ -156,6 +157,26 @@ function registerCatalogSubagentProvider(ctx: Context, name: string): void {
   ctx.subagents.registerProvider(provider)
 }
 
+
+/** A schema-only storage domain: the bot tools never read or write records while harvesting. */
+function catalogStorageDomain(): { open: (spec: { readonly name: string }) => Promise<unknown> } {
+  const table = {
+    get: () => undefined,
+    entries: () => ([][Symbol.iterator]()),
+    keys: () => ([][Symbol.iterator]()),
+    size: 0,
+    put: () => Promise.resolve(),
+    delete: () => Promise.resolve(false),
+    deleteMany: () => Promise.resolve(0),
+    update: () => Promise.reject(new Error('gen-tool-catalog: storage writes are unavailable during schema harvest')),
+  }
+  return {
+    open: (spec: { readonly name: string }) => Promise.resolve({
+      name: spec.name, global: {}, table: () => table, close: () => Promise.resolve(),
+    }),
+  }
+}
+
 /** Minted child-scope keys for packages whose tools are never global. */
 const catalogChildScopes = new WeakMap<Context, Agent>()
 
@@ -254,6 +275,27 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(StagehandBrowserTools, {
         mode: 'launch', model: { modelName: 'openai/gpt-5.4-mini', apiKey: 'catalog-placeholder' },
       })
+    },
+  },
+  {
+    pkg: '@deepseek-ai/dsh-bot',
+    dir: 'bot',
+    source: 'packages/experimental/bot/src/index.ts',
+    requires: [
+      'ctx.tools', 'ctx.bots', 'ctx.storageDomain', 'ctx.agents', 'ctx.sessionProjections',
+      'ctx.workspaceRegistry', 'ctx.sessionTitle', 'ctx.agentDefaultModel',
+    ],
+    writes: ['tool/call', 'tool/result', 'bot and ticket records', 'a worker Session on bot_open_ticket'],
+    async mount(ctx) {
+      await ctx.plugin(AgentRegistry)
+      // Schema harvest never opens the bot domain, resolves a preset, or creates a worker.
+      ctx.provide('storageDomain' as string, catalogStorageDomain())
+      ctx.provide('agentDefaultModel' as string, { currentSelection: () => ({ provider: 'catalog', model: 'catalog' }) })
+      ctx.provide('sessionTitle' as string, { rename: () => {} })
+      ctx.provide('workspaceRegistry' as string, {
+        create: (path: string) => Promise.resolve({ path, attachSession: () => Promise.resolve(), detachSession: () => Promise.resolve() }),
+      })
+      await ctx.plugin(BotRegistry)
     },
   },
   {
