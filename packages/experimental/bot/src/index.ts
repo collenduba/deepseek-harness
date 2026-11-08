@@ -25,6 +25,8 @@ import type {
   BotRecord,
   CreateBotInput,
   OpenTicketInput,
+  BotMemoryId,
+  BotMemoryRecord,
   TicketId,
   TicketRecord,
   TicketReport,
@@ -33,7 +35,7 @@ import type {
 import { launchWorker } from './worker.ts'
 
 export * from './types.ts'
-export { botDomainSpec, botRecordSchema, ticketRecordSchema } from './spec.ts'
+export { botDomainSpec, botRecordSchema, memoryRecordSchema, ticketRecordSchema } from './spec.ts'
 export { botProjection } from './projection.ts'
 export type { BotProjectionState, BotView } from './projection.ts'
 export { launchWorker, workerInstruction } from './worker.ts'
@@ -76,6 +78,7 @@ export class BotRegistry extends Service {
 
   private botsTable!: KvTable<BotId, BotRecord>
   private ticketsTable!: KvTable<TicketId, TicketRecord>
+  private memoriesTable!: KvTable<BotMemoryId, BotMemoryRecord>
 
   constructor(ctx: Context) {
     super(ctx, 'bots')
@@ -87,6 +90,7 @@ export class BotRegistry extends Service {
     this.ctx.effect(() => () => domain.close(), 'bot.domainClose')
     this.botsTable = domain.table('bots')
     this.ticketsTable = domain.table('tickets')
+    this.memoriesTable = domain.table('memories')
     await this.ctx.sessionProjections.register(botProjection)
     this.ctx.effect(() => this.registerTools(), 'bot.tools')
   }
@@ -168,7 +172,7 @@ export class BotRegistry extends Service {
     }
     await this.ticketsTable.put(ticket.id, ticket)
     try {
-      const workerSession = await launchWorker(this.ctx, bot, ticket)
+      const workerSession = await launchWorker(this.ctx, bot, ticket, this.memoriesOf(bot.id))
       return await this.ticketsTable.update(ticket.id, current => ({
         ...current,
         stage: 'working',
@@ -222,8 +226,55 @@ export class BotRegistry extends Service {
     const bot = this.botsTable.get(botId)
     if (bot === undefined) throw new Error(`unknown bot '${botId}'`)
     const archivedTickets = await this.ticketsTable.deleteMany(this.ticketsOf(botId).map(ticket => ticket.id))
+    await this.memoriesTable.deleteMany(this.memoriesOf(botId).map(memory => memory.id))
     await this.botsTable.delete(botId)
     return { name: bot.name, archivedTickets }
+  }
+
+  /**
+   * Notes one bot keeps across tickets, newest first.
+   * @param botId - the owning bot.
+   * @returns matching notes.
+   */
+  memoriesOf(botId: BotId): BotMemoryRecord[] {
+    return [...this.memoriesTable.entries()]
+      .filter(([, memory]) => String(memory.botId) === String(botId))
+      .map(([, memory]) => memory)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  }
+
+  /**
+   * Write one durable note for a bot.
+   * @param botId - the bot the note belongs to.
+   * @param text - the note, one fact or rule.
+   * @param sourceTicket - the ticket whose worker wrote it, when a worker did.
+   * @returns the stored note.
+   */
+  async remember(botId: BotId, text: string, sourceTicket?: TicketId): Promise<BotMemoryRecord> {
+    const bot = this.botsTable.get(botId)
+    if (bot === undefined) throw new Error(`unknown bot '${botId}'`)
+    const note = requireText(text, 'text')
+    const record: BotMemoryRecord = {
+      id: brandString<BotMemoryId>(`memory-${randomUUID()}`),
+      botId,
+      text: note,
+      createdAt: now(),
+      ...(sourceTicket === undefined ? {} : { sourceTicket }),
+    }
+    await this.memoriesTable.put(record.id, record)
+    return record
+  }
+
+  /**
+   * The ticket a worker Session is running, when one exists.
+   * @param session - worker Session id.
+   * @returns the ticket, or `undefined`.
+   */
+  ticketOfWorker(session: SessionId): TicketRecord | undefined {
+    for (const [, ticket] of this.ticketsTable.entries()) {
+      if (ticket.workerSession !== undefined && String(ticket.workerSession) === String(session)) return ticket
+    }
+    return undefined
   }
 
   /**
@@ -401,6 +452,38 @@ export class BotRegistry extends Service {
           return await ctx.bots.archive(botId)
         },
         presentCall: args => ({ card: 'generic', title: 'bot_archive', rawInput: args }),
+      })),
+
+      this.ctx.tools.register(defineTool({
+        name: 'bot_remember',
+        description: 'Keep one durable note for this bot, such as a standing rule, a repository fact, or a preference. Every later worker for this bot reads the notes. Call it from the bot\'s conversation or from a ticket worker.',
+        parameters: {
+          text: { type: 'string', required: true, description: 'One fact or rule, stated completely in one or two sentences.' },
+        },
+        output: {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              botId: { type: 'string', required: true },
+              memoryId: { type: 'string', required: true },
+            },
+          },
+          render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+        },
+        async execute(args, exec) {
+          if (exec.agent === undefined) throw new Error('bot_remember requires a calling agent')
+          const session = exec.agent.session.id
+          const workerTicket = ctx.bots.ticketOfWorker(session)
+          const bot = ctx.bots.findByRouter(session)
+            ?? (workerTicket === undefined
+              ? undefined
+              : ctx.bots.list().find(candidate => String(candidate.id) === String(workerTicket.botId)))
+          if (bot === undefined) throw new Error('no bot is bound to this Session or its ticket')
+          const memory = await ctx.bots.remember(bot.id, args.text, workerTicket?.id)
+          return { botId: bot.id, memoryId: memory.id }
+        },
+        presentCall: args => ({ card: 'generic', title: 'bot_remember', rawInput: args }),
       })),
       this.ctx.tools.register(defineTool({
         name: 'bot_report',

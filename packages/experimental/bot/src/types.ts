@@ -13,6 +13,9 @@ export type BotId = Branded<'BotId'>
 /** Identifies one unit of work a bot opened. */
 export type TicketId = Branded<'TicketId'>
 
+/** Identifies one remembered fact. */
+export type BotMemoryId = Branded<'BotMemoryId'>
+
 /**
  * Where a ticket stands. `queued` and `working` need no person; `waiting`
  * waits for a next input; `ready`, `blocked`, and `failed` all need a person.
@@ -70,6 +73,20 @@ export interface TicketRecord {
   readonly createdAt: string
   /** ISO-8601 time of the latest write. */
   readonly updatedAt: string
+}
+
+/** One durable note a bot keeps across tickets. */
+export interface BotMemoryRecord {
+  /** Stable identity, generated when the note is written. */
+  readonly id: BotMemoryId
+  /** The bot the note belongs to. */
+  readonly botId: BotId
+  /** The note text, one fact or rule. */
+  readonly text: string
+  /** ISO-8601 time of the write. */
+  readonly createdAt: string
+  /** The ticket whose worker wrote it, when a worker did. */
+  readonly sourceTicket?: TicketId | undefined
 }
 
 /** What a bot's worker reports about its ticket. */

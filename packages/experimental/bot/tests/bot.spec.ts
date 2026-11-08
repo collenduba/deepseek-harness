@@ -7,8 +7,8 @@ import { createToolResultMessage, createUserMessage, ToolCallId } from '@deepsee
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import BotRegistry, { botProjection, botRecordSchema, ticketRecordSchema, workerInstruction } from '../src/index.ts'
-import type { BotId, BotProjectionState, TicketId } from '../src/index.ts'
+import BotRegistry, { botProjection, botRecordSchema, memoryRecordSchema, ticketRecordSchema, workerInstruction } from '../src/index.ts'
+import type { BotId, BotMemoryId, BotProjectionState, TicketId } from '../src/index.ts'
 
 const ROUTER = brandString<SessionId>('router-1')
 const WORKER = brandString<SessionId>('worker-1')
@@ -115,6 +115,19 @@ describe('tickets', () => {
       .rejects.toThrow(/only the worker Session/)
   })
 
+  it('keeps notes across tickets and names the worker ticket', async () => {
+    const { ctx } = await harness()
+    const bot = await ctx.bots.create({
+      name: 'reviewer', job: 'Review pull requests', workspace: '/tmp/work', routerSession: ROUTER,
+    })
+    const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review the diff.' })
+    const memory = await ctx.bots.remember(bot.id, 'The repo uses pnpm.', ticket.id)
+    expect(memory.sourceTicket).toBe(ticket.id)
+    expect(ctx.bots.memoriesOf(bot.id).map(entry => entry.text)).toEqual(['The repo uses pnpm.'])
+    expect(ctx.bots.ticketOfWorker(ticket.workerSession!)?.id).toBe(ticket.id)
+    expect(memoryRecordSchema.safeParse({ ...memory, text: '' }).success).toBe(false)
+  })
+
   it('archives a bot and every ticket it opened', async () => {
     const { ctx } = await harness()
     const bot = await ctx.bots.create({
@@ -124,10 +137,12 @@ describe('tickets', () => {
       routerSession: ROUTER,
     })
     await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review the diff.' })
+    await ctx.bots.remember(bot.id, 'The repo uses pnpm.')
     const archived = await ctx.bots.archive(bot.id)
     expect(archived).toEqual({ name: 'reviewer', archivedTickets: 1 })
     expect(ctx.bots.list()).toEqual([])
     expect(ctx.bots.ticketsOf(bot.id)).toEqual([])
+    expect(ctx.bots.memoriesOf(bot.id)).toEqual([])
     await expect(ctx.bots.archive(bot.id)).rejects.toThrow(/unknown bot/)
   })
 
@@ -163,10 +178,17 @@ describe('worker instructions', () => {
       createdAt: '2026-11-06T00:00:00.000Z',
       updatedAt: '2026-11-06T00:00:00.000Z',
     }
-    const text = workerInstruction(bot, ticket)
+    const memory = {
+      id: brandString<BotMemoryId>('memory-1'),
+      botId: bot.id,
+      text: 'Run the unit tests before opening a pull request.',
+      createdAt: '2026-11-06T00:00:00.000Z',
+    }
+    const text = workerInstruction(bot, ticket, [memory])
     expect(text).toContain('ticket-1')
     expect(text).toContain('Review the diff and report.')
     expect(text).toContain('bot_report')
+    expect(text).toContain('Run the unit tests before opening a pull request.')
   })
 })
 

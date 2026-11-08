@@ -8,10 +8,13 @@ import { z } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
-import type { BotId, BotRecord, TicketId, TicketRecord } from './types.ts'
+import type { BotId, BotMemoryId, BotMemoryRecord, BotRecord, TicketId, TicketRecord } from './types.ts'
 
 /** Brand a stored string as a {@link BotId}. */
 const botId = z.string().min(1).transform(value => value as BotId)
+
+/** Brand a stored string as a {@link BotMemoryId}. */
+const memoryId = z.string().min(1).transform(value => value as BotMemoryId)
 
 /** Brand a stored string as a {@link TicketId}. */
 const ticketId = z.string().min(1).transform(value => value as TicketId)
@@ -46,15 +49,27 @@ export const ticketRecordSchema = z.object({
   updatedAt: z.string().min(1),
 })
 
+/** Durable shape of one remembered note. */
+export const memoryRecordSchema = z.object({
+  id: memoryId,
+  botId,
+  text: z.string().min(1),
+  createdAt: z.string().min(1),
+  sourceTicket: ticketId.optional(),
+})
+
 /**
- * The `bot` domain: two tables and no global state. Version 1 is the first
- * shipped format, so no compatibility window exists yet.
+ * The `bot` domain: bots, tickets, and remembered notes, with no global state.
+ * Version 2 adds the `memories` table; version-1 stores load unchanged, and
+ * their records keep their meaning.
  */
 export const botDomainSpec = defineDomain({
   name: 'bot',
-  version: 1,
+  version: 2,
+  compatibleVersions: [1],
   tables: {
     bots: domainTable<BotId, BotRecord>(botRecordSchema),
     tickets: domainTable<TicketId, TicketRecord>(ticketRecordSchema),
+    memories: domainTable<BotMemoryId, BotMemoryRecord>(memoryRecordSchema),
   },
 })
