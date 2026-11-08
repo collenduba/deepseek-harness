@@ -35,6 +35,7 @@ A conversation then drives one bot:
 | `bot_list` | List every bot in the deployment with its open ticket count. |
 | `bot_open_ticket` | Give the bot one concrete instruction; a worker Session runs it. |
 | `bot_report` | Called only by the ticket's worker: record `ready`, `waiting`, `blocked`, or `failed` and one summary line. |
+| `bot_archive` | Remove a bot and its tickets; worker Sessions and their directories stay. |
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation

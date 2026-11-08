@@ -212,6 +212,21 @@ export class BotRegistry extends Service {
   }
 
   /**
+   * Remove one bot and every ticket it opened. Records disappear; the worker
+   * Sessions and their directories stay, because this is not a data-erasure
+   * operation.
+   * @param botId - the bot to archive.
+   * @returns the archived bot's name and ticket count.
+   */
+  async archive(botId: BotId): Promise<{ name: string; archivedTickets: number }> {
+    const bot = this.botsTable.get(botId)
+    if (bot === undefined) throw new Error(`unknown bot '${botId}'`)
+    const archivedTickets = await this.ticketsTable.deleteMany(this.ticketsOf(botId).map(ticket => ticket.id))
+    await this.botsTable.delete(botId)
+    return { name: bot.name, archivedTickets }
+  }
+
+  /**
    * Tickets of one bot, newest first.
    * @param botId - the owning bot.
    * @returns matching tickets.
@@ -359,6 +374,34 @@ export class BotRegistry extends Service {
         presentCall: args => ({ card: 'generic', title: 'bot_open_ticket', rawInput: args }),
       })),
 
+
+      this.ctx.tools.register(defineTool({
+        name: 'bot_archive',
+        description: 'Remove a bot and every ticket it opened. Worker Sessions and their directories stay. Omit bot_id to archive the bot bound to this conversation.',
+        parameters: {
+          bot_id: { type: 'string', description: 'Bot id from bot_list. Omit to archive this conversation\'s bot.' },
+        },
+        output: {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              name: { type: 'string', required: true },
+              archivedTickets: { type: 'number', required: true },
+            },
+          },
+          render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+        },
+        async execute(args, exec) {
+          if (exec.agent === undefined) throw new Error('bot_archive requires a calling agent')
+          const botId = args.bot_id !== undefined
+            ? brandString<BotId>(args.bot_id)
+            : ctx.bots.findByRouter(exec.agent.session.id)?.id
+          if (botId === undefined) throw new Error('no bot is bound to this Session; pass bot_id')
+          return await ctx.bots.archive(botId)
+        },
+        presentCall: args => ({ card: 'generic', title: 'bot_archive', rawInput: args }),
+      })),
       this.ctx.tools.register(defineTool({
         name: 'bot_report',
         description: 'Report the outcome of the ticket you are working on. Only the ticket\'s worker Session may call this. Include one line the requester can read without opening your Session.',

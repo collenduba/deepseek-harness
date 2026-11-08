@@ -35,6 +35,7 @@ kind: "package-reference"
 | `bot_list` | 列出部署中的每个 Bot 及其未结束工单数。 |
 | `bot_open_ticket` | 给 Bot 一条具体指令，由执行会话运行。 |
 | `bot_report` | 仅由工单的执行会话调用：记录 `ready`、`waiting`、`blocked` 或 `failed` 和一行摘要。 |
+| `bot_archive` | 删除 Bot 及其工单；执行会话与其目录保留。 |
 
 <a id="understand-the-implementation"></a>
 ## 理解实现

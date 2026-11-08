@@ -115,6 +115,22 @@ describe('tickets', () => {
       .rejects.toThrow(/only the worker Session/)
   })
 
+  it('archives a bot and every ticket it opened', async () => {
+    const { ctx } = await harness()
+    const bot = await ctx.bots.create({
+      name: 'reviewer',
+      job: 'Review pull requests',
+      workspace: '/tmp/work',
+      routerSession: ROUTER,
+    })
+    await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review the diff.' })
+    const archived = await ctx.bots.archive(bot.id)
+    expect(archived).toEqual({ name: 'reviewer', archivedTickets: 1 })
+    expect(ctx.bots.list()).toEqual([])
+    expect(ctx.bots.ticketsOf(bot.id)).toEqual([])
+    await expect(ctx.bots.archive(bot.id)).rejects.toThrow(/unknown bot/)
+  })
+
   it('refuses to open a ticket when no bot is bound to the Session', async () => {
     const { ctx } = await harness()
     await expect(ctx.bots.openTicket({
