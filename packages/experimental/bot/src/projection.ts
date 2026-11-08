@@ -9,7 +9,7 @@ import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 
 /** Tools whose logged calls and results the projection folds. */
-const BOT_TOOLS = new Set(['bot_create', 'bot_open_ticket', 'bot_report'])
+const BOT_TOOLS = new Set(['bot_archive', 'bot_create', 'bot_open_ticket', 'bot_report'])
 
 /** One bot as the panel shows it. */
 const botView = z.object({
@@ -40,7 +40,7 @@ const stateSchema = z.object({
   view: viewSchema,
   /** Calls of the open turn waiting for a result, keyed by call id. */
   pending: z.record(z.string(), z.object({
-    kind: z.enum(['create', 'open', 'report']),
+    kind: z.enum(['archive', 'create', 'open', 'report']),
     title: z.string().optional(),
     summary: z.string().optional(),
     ticketId: z.string().optional(),
@@ -135,7 +135,13 @@ export const botProjection: BotProjectionDefinition = {
       } catch {
         return state
       }
-      const kind = event.data.name === 'bot_create' ? 'create' : event.data.name === 'bot_open_ticket' ? 'open' : 'report'
+      const kind = event.data.name === 'bot_create'
+        ? 'create'
+        : event.data.name === 'bot_open_ticket'
+          ? 'open'
+          : event.data.name === 'bot_archive'
+            ? 'archive'
+            : 'report'
       return {
         ...state,
         pending: {
@@ -158,6 +164,9 @@ export const botProjection: BotProjectionDefinition = {
     const value = resultValue(event.data.message.content)
     if (value === undefined) return { ...state, pending }
 
+    if (call.kind === 'archive') {
+      return { ...state, pending, view: { bot: null, tickets: {} } }
+    }
     if (call.kind === 'create') {
       const bot = botView.safeParse(value)
       return bot.success ? { ...state, pending, view: { ...state.view, bot: bot.data } } : { ...state, pending }

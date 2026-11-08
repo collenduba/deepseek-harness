@@ -263,6 +263,10 @@ describe('bot projection', () => {
       }),
     })
     expect(state.view.tickets['ticket-1']).toMatchObject({ stage: 'blocked', summary: 'Need input.' })
+
+    state = botProjection.apply(state, call(event(8), 'c4', 'bot_archive', {}))
+    state = botProjection.apply(state, result(9, 'c4', { name: 'reviewer', archivedTickets: 1 }))
+    expect(state.view).toEqual({ bot: null, tickets: {} })
   })
 
   it('ignores a failed result and an unrelated call', () => {
