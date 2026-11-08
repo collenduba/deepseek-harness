@@ -4,9 +4,11 @@
  * @module @deepseek-ai/dsh-bot-source-github/src/github
  */
 
+import { brandString } from '@deepseek-ai/dsh-brand'
 import { execa } from 'execa'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import { z } from 'zod'
+import type { CandidateId, SourceCandidate } from './spec.ts'
 
 /** One open issue as `gh issue list --json` reports it. */
 export const issueSchema = z.object({
@@ -53,6 +55,26 @@ export function freshIssues(seen: readonly string[], issues: readonly GithubIssu
   const handled = new Set(seen)
   return issues.filter(issue => !handled.has(String(issue.number)))
     .sort((left, right) => left.number - right.number)
+}
+
+/**
+ * The candidate record one issue produces. The id is deterministic, so a
+ * retried poll overwrites its own record instead of duplicating it.
+ * @param repository - `owner/name` of the repository.
+ * @param issue - the issue considered.
+ * @param createdAt - ISO-8601 time of the decision.
+ * @returns the candidate, in `would-open` state.
+ */
+export function candidateOf(repository: string, issue: GithubIssue, createdAt: string): SourceCandidate {
+  return {
+    id: brandString<CandidateId>(`candidate-${repository}-${issue.number}`),
+    repository,
+    number: issue.number,
+    title: issue.title,
+    url: issue.url,
+    state: 'would-open',
+    createdAt,
+  }
 }
 
 /**
