@@ -18,6 +18,7 @@ export const EXPERIMENTAL_PACKAGE_NAME_EXCEPTIONS: Readonly<Record<string, strin
   'packages/experimental/hooks-codex': '@deepseek-ai/dsh-hooks-codex',
   'packages/experimental/bot': '@deepseek-ai/dsh-bot',
   'packages/experimental/bot-bundle': '@deepseek-ai/dsh-bot-bundle',
+  'packages/experimental/bot-source-github': '@deepseek-ai/dsh-bot-source-github',
   'packages/experimental/webhook': '@deepseek-ai/dsh-webhook',
   'packages/experimental/webhook-github': '@deepseek-ai/dsh-webhook-github',
   'packages/experimental/action-cards': '@deepseek-ai/dsh-action-cards',

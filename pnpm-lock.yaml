@@ -8649,6 +8649,9 @@ importers:
       '@deepseek-ai/dsh-bot':
         specifier: workspace:*
         version: link:../bot
+      '@deepseek-ai/dsh-bot-source-github':
+        specifier: workspace:*
+        version: link:../bot-source-github
       '@deepseek-ai/dsh-client-ui-bot':
         specifier: workspace:*
         version: link:../../client/ui-bot
@@ -8656,6 +8659,31 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis
+
+  packages/experimental/bot-source-github:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      execa:
+        specifier: ^10.0.1
+        version: 10.0.1
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-bot':
+        specifier: workspace:*
+        version: link:../bot
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:*
+        version: link:../../storage/storage-domain
+      '@deepseek-ai/dsh-subprocess':
+        specifier: workspace:*
+        version: link:../../subprocess/subprocess
 
   packages/experimental/browser-use-chrome-devtools-mcp:
     dependencies:

@@ -1,0 +1,43 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/experimental/bot-source-github/README.md
+/:
+  en: 4b8e1884ab443929
+  zh: e748f1c3c836ebe2
+/deepseek-ai-dsh-bot-source-github:
+  en: b6aeae77f5373538
+  zh: 7f24796a0452d08a
+/deepseek-ai-dsh-bot-source-github/summary:
+  en: 2c83e76894e50146
+  zh: a3cf51310182bf73
+/deepseek-ai-dsh-bot-source-github/table-of-contents:
+  en: 2fee9973f19f9401
+  zh: 57488629c9a54c40
+/deepseek-ai-dsh-bot-source-github/use-this-package:
+  en: f167761f56f68719
+  zh: dddf19c2054a239b
+/deepseek-ai-dsh-bot-source-github/understand-the-implementation:
+  en: 6f81c9984b12761a
+  zh: 97e6f5fdf07e581c
+/deepseek-ai-dsh-bot-source-github/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-bot-source-github/model-experience/ticket-instructions:
+  en: 7268a7203b054dc3
+  zh: d95e1821a0714031
+/deepseek-ai-dsh-bot-source-github/model-experience/ticket-instructions/what-the-model-sees:
+  en: d6521a7c6b78df6a
+  zh: cdf957795892fcc1
+/deepseek-ai-dsh-bot-source-github/model-experience/ticket-instructions/token-effect:
+  en: caa3daa9081fab63
+  zh: 92676af2c087a576
+/deepseek-ai-dsh-bot-source-github/model-experience/ticket-instructions/kv-cache-effect:
+  en: a05efe319cd92670
+  zh: d45d8c0cadb45ca1
+/deepseek-ai-dsh-bot-source-github/known-limitations-and-deferred-work:
+  en: 9561947049f18a19
+  zh: 050713112f79a67e
+/deepseek-ai-dsh-bot-source-github/known-limitations-and-deferred-work/dev-note:
+  en: 9ee0e8f74e73035f
+  zh: 633ec2128522ba42

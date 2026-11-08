@@ -31,6 +31,7 @@
   "dependencies": {
     "@deepseek-ai/dsh-agent-preset": "workspace:*",
     "@deepseek-ai/dsh-bot": "workspace:*",
+    "@deepseek-ai/dsh-bot-source-github": "workspace:*",
     "@deepseek-ai/dsh-client-ui-bot": "workspace:*"
   },
   "peerDependencies": {

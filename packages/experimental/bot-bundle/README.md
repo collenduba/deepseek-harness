@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Composes `@deepseek-ai/dsh-bot` with two agent presets and the bot status strip. `bot-router` is the conversation that owns bots; `bot-worker` is the unattended composition a ticket runs in; `@deepseek-ai/dsh-client-ui-bot` shows the bound bot and its ticket counts above the composer.
+Composes `@deepseek-ai/dsh-bot` with two agent presets, the bot status strip, and the GitHub issue source (disabled until configured). `bot-router` is the conversation that owns bots; `bot-worker` is the unattended composition a ticket runs in; `@deepseek-ai/dsh-client-ui-bot` shows the bound bot and its ticket counts above the composer.
 
 ## Table of Contents
 
@@ -56,6 +56,7 @@ The bundle adds no request content of its own. Selecting `bot-worker` for a Sess
 - There is no no-wait guard yet; a router can still run a blocking shell command.
 - The worker preset omits web, subagent, schedule, and presentation tools by design; add them in a derived preset when a deployment needs them.
 - The status strip is a summary only; it does not list tickets or open a worker Session.
+- The GitHub source is inserted disabled: it needs a `bot` and `repository` before it can run.
 
 <a id="dev-note"></a>
 ### Dev Note
