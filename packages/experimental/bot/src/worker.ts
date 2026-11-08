@@ -44,10 +44,12 @@ export function workerInstruction(
   bot: BotRecord,
   ticket: TicketRecord,
   memories: readonly BotMemoryRecord[] = [],
+  origin?: TicketOrigin,
 ): string {
   return [
     `You are the worker for ticket ${ticket.id} of bot "${bot.name}".`,
     `Bot job: ${bot.job}`,
+    ...origin === undefined ? [] : ['', `This ticket was handed off from ticket ${origin.ticketId} of bot "${origin.botName}".`],
     ...memories.length === 0 ? [] : ['', 'Known context for this bot, from earlier tickets:', ...memories.map(memory => `- ${memory.text}`)],
     '',
     'Work only on this instruction:',
@@ -56,6 +58,14 @@ export function workerInstruction(
     `When the work is done, call bot_report with ticket_id "${ticket.id}", stage "ready", and a one-line summary.`,
     'Use stage "waiting" only when a person must answer, "blocked" when something outside your control stops you, and "failed" when you cannot finish.',
   ].join('\n')
+}
+
+/** The ticket a handoff came from, as the new worker sees it. */
+export interface TicketOrigin {
+  /** Name of the bot that handed the work off. */
+  readonly botName: string
+  /** The ticket that delegated. */
+  readonly ticketId: TicketId
 }
 
 /** Log a rollback failure without replacing the launch failure that caused it. */
@@ -81,6 +91,7 @@ export async function launchWorker(
   bot: BotRecord,
   ticket: TicketRecord,
   memories: readonly BotMemoryRecord[] = [],
+  origin?: TicketOrigin,
 ): Promise<SessionId> {
   const workspace = await ctx.workspaceRegistry.create(bot.workspace)
   const sessionId = brandString<SessionId>(`bot-worker-${randomUUID()}`)
@@ -117,7 +128,7 @@ export async function launchWorker(
     attached = true
     ctx.sessionTitle.rename(handle.agent.session, `${bot.name}: ${ticket.title}`)
     handle.agent.followup(createUserMessage({
-      content: [{ type: 'text', text: workerInstruction(bot, ticket, memories) }],
+      content: [{ type: 'text', text: workerInstruction(bot, ticket, memories, origin) }],
       source: {
         kind: 'bot',
         botId: bot.id,

@@ -75,6 +75,10 @@ export interface TicketRecord {
   readonly workerSession?: SessionId | undefined
   /** The worker's latest one-line outcome or question. */
   readonly summary?: string | undefined
+  /** The ticket this work was handed off from, when it was delegated. */
+  readonly parentTicket?: TicketId | undefined
+  /** The name of the bot that handed the work off. */
+  readonly parentBotName?: string | undefined
   /** ISO-8601 creation time. */
   readonly createdAt: string
   /** ISO-8601 time of the latest write. */

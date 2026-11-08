@@ -51,6 +51,8 @@ export const ticketRecordSchema = z.object({
   routerSession: sessionId,
   workerSession: sessionId.optional(),
   summary: z.string().optional(),
+  parentTicket: ticketId.optional(),
+  parentBotName: z.string().min(1).optional(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
 })
@@ -92,13 +94,14 @@ export const noticeRecordSchema = z.object({
 
 /**
  * The `bot` domain: bots, tickets, remembered notes, approval requests, and
- * notices, with no global state. Version 4 adds the `notices` table; versions
- * 1 through 3 load unchanged, and their records keep their meaning.
+ * notices, with no global state. Version 5 adds the optional handoff fields on
+ * a ticket; versions 1 through 4 load unchanged, and their records keep their
+ * meaning.
  */
 export const botDomainSpec = defineDomain({
   name: 'bot',
-  version: 4,
-  compatibleVersions: [1, 2, 3],
+  version: 5,
+  compatibleVersions: [1, 2, 3, 4],
   tables: {
     bots: domainTable<BotId, BotRecord>(botRecordSchema),
     tickets: domainTable<TicketId, TicketRecord>(ticketRecordSchema),

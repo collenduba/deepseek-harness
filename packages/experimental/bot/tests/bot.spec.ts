@@ -153,6 +153,28 @@ describe('tickets', () => {
     await expect(ctx.bots.archive(bot.id)).rejects.toThrow(/unknown bot/)
   })
 
+  it('hands work to another bot and records the source ticket', async () => {
+    const { ctx } = await harness()
+    const reviewer = await ctx.bots.create({
+      name: 'reviewer', job: 'Review pull requests', workspace: '/tmp/work', routerSession: ROUTER,
+    })
+    await ctx.bots.create({
+      name: 'fixer', job: 'Fix what the reviewer finds', workspace: '/tmp/work',
+      routerSession: brandString<SessionId>('router-2'),
+    })
+    const source = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review the diff.' })
+    const handed = await ctx.bots.handoff(source.id, 'fixer', 'Fix #12', 'Fix the failing test.')
+    expect(handed.stage).toBe('working')
+    expect(handed.parentTicket).toBe(source.id)
+    expect(handed.parentBotName).toBe('reviewer')
+    expect(handed.botId).not.toBe(reviewer.id)
+
+    await expect(ctx.bots.handoff(source.id, 'reviewer', 'x', 'y')).rejects.toThrow(/same bot/)
+    await expect(ctx.bots.handoff(source.id, 'missing', 'x', 'y')).rejects.toThrow(/no active bot/)
+    await expect(ctx.bots.handoff(brandString<TicketId>('ticket-missing'), 'fixer', 'x', 'y'))
+      .rejects.toThrow(/unknown ticket/)
+  })
+
   it('refuses to open a ticket when no bot is bound to the Session', async () => {
     const { ctx } = await harness()
     await expect(ctx.bots.openTicket({
@@ -266,6 +288,8 @@ describe('worker instructions', () => {
     expect(text).toContain('Review the diff and report.')
     expect(text).toContain('bot_report')
     expect(text).toContain('Run the unit tests before opening a pull request.')
+    expect(workerInstruction(bot, ticket, [], { botName: 'planner', ticketId: brandString<TicketId>('ticket-0') }))
+      .toContain('handed off from ticket ticket-0 of bot "planner"')
   })
 })
 
