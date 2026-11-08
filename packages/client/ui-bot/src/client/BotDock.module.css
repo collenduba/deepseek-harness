@@ -1,0 +1,23 @@
+/* BotDock: one compact status line in the composer input dock. */
+
+.strip {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 2px 12px 4px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsh-color-text-secondary, #6b7280);
+}
+
+.bot {
+  font-weight: 500;
+  color: var(--dsh-color-text-primary, #111827);
+}
+
+.needs {
+  color: var(--dsh-color-warning-text, #b45309);
+  font-weight: 500;
+}

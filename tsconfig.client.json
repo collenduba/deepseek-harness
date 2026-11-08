@@ -166,6 +166,7 @@
     { "path": "./packages/client/locale/tsconfig.client.json" },
     { "path": "./packages/client/ui-renderer" },
     { "path": "./packages/client/ui-session" },
+    { "path": "./packages/client/ui-bot" },
     { "path": "./packages/client/resources" },
     { "path": "./packages/api/workspace-files/tsconfig.client.json" },
     { "path": "./packages/client/web" },

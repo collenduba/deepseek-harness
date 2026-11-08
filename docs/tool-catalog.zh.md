@@ -23,6 +23,7 @@
 | `@deepseek-ai/dsh-plugin-market` | `plugin_market` | `ctx.tools`, `ctx.pluginMarket` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-experimental-browser-use-stagehand-native` | `stagehand_act`、`stagehand_extract`、`stagehand_navigate`、`stagehand_observe`、`stagehand_screenshot`、`stagehand_tabs` | `ctx.browserUse`、`ctx.agents`、`ctx.tools`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | - |
+| `@deepseek-ai/dsh-bot` | `bot_archive`, `bot_create`, `bot_list`, `bot_open_ticket`, `bot_report` | `ctx.tools`, `ctx.bots`, `ctx.storageDomain`, `ctx.agents`, `ctx.sessionProjections`, `ctx.workspaceRegistry`, `ctx.sessionTitle`, `ctx.agentDefaultModel` | `tool/call`、`tool/result`、`bot 与工单记录`、`bot_open_ticket 时创建执行会话` | - | - |
 | `@deepseek-ai/dsh-action-cards` | `propose_action` | `ctx.tools`、`ctx.agents`、`ctx.sessionProjections`、`ctx.remoteAccess` | `tool/call`、`tool/result`、`plugin:action-cards/decision`、`user/message` | - | 只向加载过已注册卡片种类 Skill 的 Agent 声明；各种类的包注册自己的动作，个性化推荐 Bundle 提供随产品发布的种类。 |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`、`ctx.userQuestions` | `tool/call`、`tool/result after an answer or timeout`、`late user/message` | - | ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才启用前台超时与 pending 结果，同时问题仍可回答；timed 模式内 `timeout: -1` 让本次调用无限期阻塞。 |
 | `@deepseek-ai/dsh-tool-executor-ptc` | `run_code` | `ctx.workingDirectory (Agent executions)`、`ctx.tools`、`ctx.ptcRuntime`、`ctx.systemPrompt` | `tool/call`、`one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`、`tool/result` | - | PTC 执行器只向模型公开 run_code，并在运行时语言生成的 SDK 中声明其他可见能力。程序绑定按提交顺序进入共享的受守卫工具流水线；并行安全的函数体最多重叠 maxParallelSubCalls 个，嵌套结果保持与外层程序关联。最终超时时间与 maxSubCallsPerMinute 决定调用总额度；超限会终止程序。 |
@@ -501,6 +502,147 @@
 ```
 
 来源：[`packages/experimental/browser-use-stagehand-native/src/index.ts`](../packages/experimental/browser-use-stagehand-native/src/index.ts)
+
+<a id="deepseek-aidsh-action-cards"></a>
+
+## `@deepseek-ai/dsh-bot`
+
+### `bot_archive`
+
+删除一个 Bot 及其打开的所有工单。执行会话与其目录保留。省略 bot_id 时归档本对话绑定的 Bot。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "bot_id": {
+      "type": "string",
+      "description": "Bot id from bot_list. Omit to archive this conversation's bot."
+    }
+  }
+}
+```
+
+Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/src/index.ts)
+
+### `bot_create`
+
+在本对话中创建一个持久 Bot。该对话成为 Bot 的路由会话：它接收 Bot 的工单报告。用 bot_open_ticket 给 Bot 派活。
+
+Create a durable bot in this conversation. The conversation becomes the bot's router: it receives the bot's ticket reports. Use bot_open_ticket to give the bot work.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Short display name, such as reviewer."
+    },
+    "job": {
+      "type": "string",
+      "description": "What the bot is for, in one sentence."
+    },
+    "workspace": {
+      "type": "string",
+      "description": "Absolute directory the bot's workers run in."
+    },
+    "preset": {
+      "type": "string",
+      "description": "Optional worker agent preset id. Omit to use the deployment default."
+    }
+  },
+  "required": [
+    "name",
+    "job",
+    "workspace"
+  ]
+}
+```
+
+Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/src/index.ts)
+
+### `bot_list`
+
+列出本部署中的 Bot 及其未结束工单数。
+
+List the bots in this deployment with their open ticket counts.
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/src/index.ts)
+
+### `bot_open_ticket`
+
+给本对话的 Bot 一个工作单元。执行会话运行指令并回报到这里。当请求足够具体、无需再提问时使用。
+
+Give this conversation's bot one unit of work. A worker Session runs the instruction and reports back here. Use this when the request is concrete enough to execute without further questions.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Short title for the work, shown in the panel."
+    },
+    "instruction": {
+      "type": "string",
+      "description": "The complete instruction the worker executes, including every fact it needs."
+    }
+  },
+  "required": [
+    "title",
+    "instruction"
+  ]
+}
+```
+
+Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/src/index.ts)
+
+### `bot_report`
+
+报告你正在处理的工单结果。只有该工单的执行会话可以调用。包含一行请求者无需打开你的会话就能读懂的摘要。
+
+Report the outcome of the ticket you are working on. Only the ticket's worker Session may call this. Include one line the requester can read without opening your Session.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "ticket_id": {
+      "type": "string",
+      "description": "The ticket id from your instructions."
+    },
+    "stage": {
+      "type": "string",
+      "description": "ready when done, waiting when a person must answer, blocked when outside your control, failed when you cannot finish.",
+      "enum": [
+        "waiting",
+        "ready",
+        "blocked",
+        "failed"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "description": "One line naming the result or the question."
+    }
+  },
+  "required": [
+    "ticket_id",
+    "stage",
+    "summary"
+  ]
+}
+```
+
+Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/src/index.ts)
 
 <a id="deepseek-aidsh-action-cards"></a>
 

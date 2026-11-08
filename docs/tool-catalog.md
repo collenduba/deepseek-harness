@@ -19,6 +19,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-plugin-market` | `plugin_market` | `ctx.tools`, `ctx.pluginMarket` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-experimental-browser-use-stagehand-native` | `stagehand_act`, `stagehand_extract`, `stagehand_navigate`, `stagehand_observe`, `stagehand_screenshot`, `stagehand_tabs` | `ctx.browserUse`, `ctx.agents`, `ctx.tools`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | - |
+| `@deepseek-ai/dsh-bot` | `bot_archive`, `bot_create`, `bot_list`, `bot_open_ticket`, `bot_report` | `ctx.tools`, `ctx.bots`, `ctx.storageDomain`, `ctx.agents`, `ctx.sessionProjections`, `ctx.workspaceRegistry`, `ctx.sessionTitle`, `ctx.agentDefaultModel` | `tool/call`, `tool/result`, `bot and ticket records`, `a worker Session on bot_open_ticket` | - | - |
 | `@deepseek-ai/dsh-action-cards` | `propose_action` | `ctx.tools`, `ctx.agents`, `ctx.sessionProjections`, `ctx.remoteAccess` | `tool/call`, `tool/result`, `plugin:action-cards/decision`, `user/message` | - | Declared only to an Agent that loaded the skill of a registered card kind; the kind packages register their actions, and the Personalized recommendations bundle supplies the shipped kinds. |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userQuestions` | `tool/call`, `tool/result after an answer or timeout`, `late user/message` | - | ask_user_question keeps the original blocking behavior by default; set `mode: timed` to opt into a foreground timeout and pending result while the question remains answerable. In timed mode, `timeout: -1` keeps that call blocking indefinitely. |
 | `@deepseek-ai/dsh-tool-executor-ptc` | `run_code` | `ctx.workingDirectory (Agent executions)`, `ctx.tools`, `ctx.ptcRuntime`, `ctx.systemPrompt` | `tool/call`, `one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`, `tool/result` | - | The PTC executor exposes only run_code to the model and declares other visible capabilities in a generated SDK in the runtime’s language. Program bindings enter the shared guarded tool pipeline in submission order; concurrency-safe bodies overlap up to maxParallelSubCalls, and nested results remain linked to the outer program. The resolved timeout and maxSubCallsPerMinute set the total call allowance; exceeding it terminates the program. |
@@ -497,6 +498,139 @@ List, create, select, or close a Stagehand browser tab.
 ```
 
 Source: [`packages/experimental/browser-use-stagehand-native/src/index.ts`](../packages/experimental/browser-use-stagehand-native/src/index.ts)
+
+<a id="deepseek-aidsh-bot"></a>
+
+## `@deepseek-ai/dsh-bot`
+
+### `bot_archive`
+
+Remove a bot and every ticket it opened. Worker Sessions and their directories stay. Omit bot_id to archive the bot bound to this conversation.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "bot_id": {
+      "type": "string",
+      "description": "Bot id from bot_list. Omit to archive this conversation's bot."
+    }
+  }
+}
+```
+
+Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/src/index.ts)
+
+### `bot_create`
+
+Create a durable bot in this conversation. The conversation becomes the bot's router: it receives the bot's ticket reports. Use bot_open_ticket to give the bot work.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Short display name, such as reviewer."
+    },
+    "job": {
+      "type": "string",
+      "description": "What the bot is for, in one sentence."
+    },
+    "workspace": {
+      "type": "string",
+      "description": "Absolute directory the bot's workers run in."
+    },
+    "preset": {
+      "type": "string",
+      "description": "Optional worker agent preset id. Omit to use the deployment default."
+    }
+  },
+  "required": [
+    "name",
+    "job",
+    "workspace"
+  ]
+}
+```
+
+Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/src/index.ts)
+
+### `bot_list`
+
+List the bots in this deployment with their open ticket counts.
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/src/index.ts)
+
+### `bot_open_ticket`
+
+Give this conversation's bot one unit of work. A worker Session runs the instruction and reports back here. Use this when the request is concrete enough to execute without further questions.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Short title for the work, shown in the panel."
+    },
+    "instruction": {
+      "type": "string",
+      "description": "The complete instruction the worker executes, including every fact it needs."
+    }
+  },
+  "required": [
+    "title",
+    "instruction"
+  ]
+}
+```
+
+Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/src/index.ts)
+
+### `bot_report`
+
+Report the outcome of the ticket you are working on. Only the ticket's worker Session may call this. Include one line the requester can read without opening your Session.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "ticket_id": {
+      "type": "string",
+      "description": "The ticket id from your instructions."
+    },
+    "stage": {
+      "type": "string",
+      "description": "ready when done, waiting when a person must answer, blocked when outside your control, failed when you cannot finish.",
+      "enum": [
+        "waiting",
+        "ready",
+        "blocked",
+        "failed"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "description": "One line naming the result or the question."
+    }
+  },
+  "required": [
+    "ticket_id",
+    "stage",
+    "summary"
+  ]
+}
+```
+
+Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/src/index.ts)
 
 <a id="deepseek-aidsh-action-cards"></a>
 
