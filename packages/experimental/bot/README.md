@@ -36,22 +36,25 @@ A conversation then drives one bot:
 | `bot_open_ticket` | Give the bot one concrete instruction; a worker Session runs it. |
 | `bot_report` | Called only by the ticket's worker: record `ready`, `waiting`, `blocked`, or `failed` and one summary line. |
 | `bot_remember` | Keep one durable note for the bot; every later worker reads it. |
+| `bot_request_approval` | Worker-only: ask the bot's conversation to approve one action, bound to the exact payload. |
+| `bot_decide_approval` | Router-only: approve or deny a pending request; the worker is told the outcome. |
 | `bot_archive` | Remove a bot, its tickets, and its notes; worker Sessions and their directories stay. |
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-The service opens one `bot` domain, version 2, with three tables. Version-1 stores load unchanged.
+The service opens one `bot` domain, version 3, with four tables. Version-1 and version-2 stores load unchanged.
 
 | Table | Key | Holds |
 |---|---|---|
 | `bots` | `BotId` | name, job, workspace, router Session, optional worker preset, status, timestamps |
 | `tickets` | `TicketId` | title, instruction, stage, router Session, worker Session, summary, timestamps |
 | `memories` | `BotMemoryId` | bot, text, creation time, and the ticket whose worker wrote it |
+| `approvals` | `BotApprovalId` | bot, ticket, action, exact payload, SHA-256 digest, status, decision note |
 
 A ticket moves `queued` → `working` → `waiting` or `ready`, or to `blocked` and `failed`. A launch failure keeps the ticket and marks it `failed` with the error message, so the panel can show what happened instead of losing the request.
 
-`bot_open_ticket` creates the worker through `ctx.agents.create` as an ordinary root Session: it receives the bot's workspace as its working directory, is attached to that workspace, is titled `<bot>: <ticket>`, and receives one instruction message. The worker is not a subagent; it survives its creator and appears in the sidebar. When it calls `bot_report`, the service validates that the caller is the ticket's worker Session, writes the stage and summary, and sends one notice to the router Session when that Session is live. A worker's instruction also carries the bot's notes, newest first, under "Known context for this bot".
+`bot_open_ticket` creates the worker through `ctx.agents.create` as an ordinary root Session: it receives the bot's workspace as its working directory, is attached to that workspace, is titled `<bot>: <ticket>`, and receives one instruction message. The worker is not a subagent; it survives its creator and appears in the sidebar. When it calls `bot_report`, the service validates that the caller is the ticket's worker Session, writes the stage and summary, and sends one notice to the router Session when that Session is live. A worker's instruction also carries the bot's notes, newest first, under "Known context for this bot". A worker that needs a decision calls `bot_request_approval`, which stores the exact payload with its SHA-256 digest and notifies the conversation; `bot_decide_approval` records the decision against that payload and sends the outcome back to the worker Session. This is an advisory gate: the worker is asked to wait, and nothing in the tool pipeline prevents it from acting first.
 
 <a id="model-experience"></a>
 ## Model Experience
@@ -75,6 +78,8 @@ The schemas are static for the mount lifetime. A ticket result appends to its co
 <a id="known-limitations-and-deferred-work"></a>
 
 - Notes are unbounded plain text: the instruction grows with every note, and there is no forgetting policy yet.
+- Approvals are advisory, not enforced: a worker that ignores the protocol can act without one. Enforcement belongs to a tool gate in a later phase.
+- A decision reaches the worker only while its Session is live; otherwise the record is decided and the worker finds out on its next turn.
 - Event sources, observe and auto modes, approval records, memory, and capability grants are not implemented.
 - One worker runs per ticket with no concurrency limit or slot accounting.
 - A report reaches the router only while that Session is live; otherwise the ticket keeps the stage and summary.
