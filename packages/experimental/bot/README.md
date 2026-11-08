@@ -43,7 +43,7 @@ A conversation then drives one bot:
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-The service opens one `bot` domain, version 3, with four tables. Version-1 and version-2 stores load unchanged.
+The service opens one `bot` domain, version 4, with five tables. Versions 1 through 3 load unchanged.
 
 | Table | Key | Holds |
 |---|---|---|
@@ -51,6 +51,7 @@ The service opens one `bot` domain, version 3, with four tables. Version-1 and v
 | `tickets` | `TicketId` | title, instruction, stage, router Session, worker Session, summary, timestamps |
 | `memories` | `BotMemoryId` | bot, text, creation time, and the ticket whose worker wrote it |
 | `approvals` | `BotApprovalId` | bot, ticket, action, exact payload, SHA-256 digest, status, decision note |
+| `notices` | `BotNoticeId` | bot, ticket, conversation, text, summary, creation and delivery times |
 
 A ticket moves `queued` → `working` → `waiting` or `ready`, or to `blocked` and `failed`. A launch failure keeps the ticket and marks it `failed` with the error message, so the panel can show what happened instead of losing the request.
 
@@ -80,6 +81,8 @@ The schemas are static for the mount lifetime. A ticket result appends to its co
 - Notes are unbounded plain text: the instruction grows with every note, and there is no forgetting policy yet.
 - Approvals are advisory, not enforced: a worker that ignores the protocol can act without one. Enforcement belongs to a tool gate in a later phase.
 - A decision reaches the worker only while its Session is live; otherwise the record is decided and the worker finds out on its next turn.
+- Quiet hours follow the Host's local clock; there is no per-user time zone, and nothing is delivered while the Host is stopped.
+- A digest is one message per conversation per interval; there is no severity ranking or per-bot cap yet.
 - Event sources, observe and auto modes, approval records, memory, and capability grants are not implemented.
 - One worker runs per ticket with no concurrency limit or slot accounting.
 - A report reaches the router only while that Session is live; otherwise the ticket keeps the stage and summary.

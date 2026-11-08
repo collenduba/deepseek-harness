@@ -19,6 +19,9 @@ export type BotMemoryId = Branded<'BotMemoryId'>
 /** Identifies one approval request. */
 export type BotApprovalId = Branded<'BotApprovalId'>
 
+/** Identifies one notice the bot held or delivered. */
+export type BotNoticeId = Branded<'BotNoticeId'>
+
 /**
  * Where a ticket stands. `queued` and `working` need no person; `waiting`
  * waits for a next input; `ready`, `blocked`, and `failed` all need a person.
@@ -117,6 +120,26 @@ export interface BotApprovalRecord {
   readonly decidedAt?: string | undefined
   /** The decider's one-line note, when they left one. */
   readonly note?: string | undefined
+}
+
+/** One notice owed to a bot's conversation, held or delivered. */
+export interface BotNoticeRecord {
+  /** Stable identity, generated when the notice is created. */
+  readonly id: BotNoticeId
+  /** The bot the notice belongs to. */
+  readonly botId: BotId
+  /** The ticket the notice is about. */
+  readonly ticketId: TicketId
+  /** The Session that receives it. */
+  readonly routerSession: SessionId
+  /** The full message text. */
+  readonly text: string
+  /** One line for a digest or a ticket card. */
+  readonly summary: string
+  /** ISO-8601 creation time. */
+  readonly createdAt: string
+  /** ISO-8601 delivery time; absent while the notice is held. */
+  readonly deliveredAt?: string | undefined
 }
 
 /** What a bot's worker reports about its ticket. */

@@ -8,6 +8,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
+import z from '@deepseek-ai/schemastery'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type {} from '@deepseek-ai/dsh-agent'
@@ -30,6 +31,8 @@ import type {
   BotApprovalStatus,
   BotMemoryId,
   BotMemoryRecord,
+  BotNoticeId,
+  BotNoticeRecord,
   TicketId,
   TicketRecord,
   TicketReport,
@@ -38,7 +41,7 @@ import type {
 import { launchWorker } from './worker.ts'
 
 export * from './types.ts'
-export { approvalRecordSchema, botDomainSpec, botRecordSchema, memoryRecordSchema, ticketRecordSchema } from './spec.ts'
+export { approvalRecordSchema, botDomainSpec, botRecordSchema, memoryRecordSchema, noticeRecordSchema, ticketRecordSchema } from './spec.ts'
 export { botProjection } from './projection.ts'
 export type { BotProjectionState, BotView } from './projection.ts'
 export { launchWorker, workerInstruction } from './worker.ts'
@@ -47,6 +50,50 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     bots: BotRegistry
   }
+}
+
+/** Deployment attention policy for router notices. */
+export interface BotAttentionConfig {
+  /** Local quiet hours as `HH:MM-HH:MM`; empty disables holding. */
+  quietHours: string
+  /** Minutes between digests of held notices. */
+  digestMinutes: number
+}
+
+/** A resolved quiet window, in local minutes since midnight. */
+export interface QuietWindow {
+  readonly start: number
+  readonly end: number
+}
+
+/**
+ * Parse quiet hours.
+ * @param value - `HH:MM-HH:MM`, or an empty string.
+ * @returns the window, or undefined when disabled.
+ * @throws when the text is not a valid range.
+ */
+export function parseQuietHours(value: string): QuietWindow | undefined {
+  if (value.trim() === '') return undefined
+  const match = /^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/.exec(value.trim())
+  if (match === null) throw new TypeError(`quietHours must be HH:MM-HH:MM, got '${value}'`)
+  const start = Number(match[1]) * 60 + Number(match[2])
+  const end = Number(match[3]) * 60 + Number(match[4])
+  if (start > 1439 || end > 1439) throw new TypeError(`quietHours is outside a day: '${value}'`)
+  return { start, end }
+}
+
+/**
+ * Whether a local time falls inside a quiet window.
+ * @param window - the window, or undefined when disabled.
+ * @param at - local time to test.
+ * @returns true when the time is quiet.
+ */
+export function isQuietAt(window: QuietWindow | undefined, at: Date): boolean {
+  if (window === undefined) return false
+  const minutes = at.getHours() * 60 + at.getMinutes()
+  return window.start <= window.end
+    ? minutes >= window.start && minutes < window.end
+    : minutes >= window.start || minutes < window.end
 }
 
 /** Current time as the ISO-8601 string every stored timestamp uses. */
@@ -79,13 +126,24 @@ export class BotRegistry extends Service {
     'workspaceRegistry',
   ]
 
+  /** Deployment attention policy. */
+  static Config: z<BotAttentionConfig> = z.object({
+    quietHours: z.string().default('').description('Local quiet hours as HH:MM-HH:MM; empty disables holding.'),
+    digestMinutes: z.natural().min(1).max(720).default(5).description('Minutes between digests of held notices.'),
+  })
+
   private botsTable!: KvTable<BotId, BotRecord>
   private ticketsTable!: KvTable<TicketId, TicketRecord>
   private memoriesTable!: KvTable<BotMemoryId, BotMemoryRecord>
   private approvalsTable!: KvTable<BotApprovalId, BotApprovalRecord>
+  private noticesTable!: KvTable<BotNoticeId, BotNoticeRecord>
+  private readonly quietWindow: QuietWindow | undefined
+  private readonly digestMinutes: number
 
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config: Partial<BotAttentionConfig> = {}) {
     super(ctx, 'bots')
+    this.quietWindow = parseQuietHours(config.quietHours ?? '')
+    this.digestMinutes = config.digestMinutes ?? 5
   }
 
   /** Open the domain and register the model tools. */
@@ -96,6 +154,11 @@ export class BotRegistry extends Service {
     this.ticketsTable = domain.table('tickets')
     this.memoriesTable = domain.table('memories')
     this.approvalsTable = domain.table('approvals')
+    this.noticesTable = domain.table('notices')
+    this.ctx.effect(() => {
+      const timer = setInterval(() => { void this.flushNotices() }, this.digestMinutes * 60_000)
+      return () => { clearInterval(timer) }
+    }, 'bot.attention')
     await this.ctx.sessionProjections.register(botProjection)
     this.ctx.effect(() => this.registerTools(), 'bot.tools')
   }
@@ -216,7 +279,7 @@ export class BotRegistry extends Service {
       summary,
       updatedAt: now(),
     }))
-    this.notifyRouter(ticket, report.stage, summary)
+    await this.notifyRouter(ticket, report.stage, summary)
     return updated
   }
 
@@ -233,6 +296,7 @@ export class BotRegistry extends Service {
     const archivedTickets = await this.ticketsTable.deleteMany(this.ticketsOf(botId).map(ticket => ticket.id))
     await this.memoriesTable.deleteMany(this.memoriesOf(botId).map(memory => memory.id))
     await this.approvalsTable.deleteMany(this.approvalsOf(botId).map(approval => approval.id))
+    await this.noticesTable.deleteMany(this.noticesOf(botId).map(notice => notice.id))
     await this.botsTable.delete(botId)
     return { name: bot.name, archivedTickets }
   }
@@ -269,6 +333,57 @@ export class BotRegistry extends Service {
     }
     await this.memoriesTable.put(record.id, record)
     return record
+  }
+
+  /**
+   * Notices of one bot, newest first.
+   * @param botId - the owning bot.
+   * @returns matching notices.
+   */
+  noticesOf(botId: BotId): BotNoticeRecord[] {
+    return [...this.noticesTable.entries()]
+      .filter(([, notice]) => String(notice.botId) === String(botId))
+      .map(([, notice]) => notice)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  }
+
+  /**
+   * Deliver every held notice as one digest per conversation. Runs on the
+   * configured interval and is safe to call directly.
+   * @returns after every digest is sent and recorded.
+   */
+  async flushNotices(): Promise<void> {
+    if (isQuietAt(this.quietWindow, new Date())) return
+    const held = [...this.noticesTable.entries()]
+      .map(([, notice]) => notice)
+      .filter(notice => notice.deliveredAt === undefined)
+    if (held.length === 0) return
+    const byRouter = new Map<string, BotNoticeRecord[]>()
+    for (const notice of held) {
+      const list = byRouter.get(String(notice.routerSession)) ?? []
+      list.push(notice)
+      byRouter.set(String(notice.routerSession), list)
+    }
+    for (const list of byRouter.values()) {
+      const first = list[0]
+      if (first === undefined) continue
+      const router = this.ctx.agents.get(first.routerSession)
+      const text = `Held updates (${list.length}):\n${list.map(notice => `- ${notice.summary}`).join('\n')}`
+      if (router !== undefined) {
+        try {
+          router.followup(createUserMessage({
+            content: [{ type: 'text', text }],
+            source: { kind: 'bot', botId: first.botId, form: 'notice', summary: `${list.length} held updates` },
+          }))
+        } catch (error: unknown) {
+          this.ctx.logger.warn(`bot: digest for '${String(first.routerSession)}' failed: ${String(error)}`)
+          continue
+        }
+      }
+      for (const notice of list) {
+        await this.noticesTable.update(notice.id, record => ({ ...record, deliveredAt: now() }))
+      }
+    }
   }
 
   /**
@@ -314,7 +429,7 @@ export class BotRegistry extends Service {
       createdAt: now(),
     }
     await this.approvalsTable.put(record.id, record)
-    this.notify(ticket, `Approval ${record.id} requested for ticket "${ticket.title}": ${record.action}. Decide with bot_decide_approval.`, `Approval ${record.id}: ${record.action}`)
+    await this.notify(ticket, `Approval ${record.id} requested for ticket "${ticket.title}": ${record.action}. Decide with bot_decide_approval.`, `Approval ${record.id}: ${record.action}`)
     return record
   }
 
@@ -375,29 +490,42 @@ export class BotRegistry extends Service {
   }
 
   /** Send one ticket-stage notice to the router Session, ignoring an offline router. */
-  private notifyRouter(ticket: TicketRecord, stage: string, summary: string): void {
-    this.notify(ticket, `Ticket "${ticket.title}" is ${stage}: ${summary}`, summary, stage as TicketStage)
+  private async notifyRouter(ticket: TicketRecord, stage: string, summary: string): Promise<void> {
+    await this.notify(ticket, `Ticket "${ticket.title}" is ${stage}: ${summary}`, summary, stage as TicketStage)
   }
 
-  /** Send one notice to the router Session, ignoring an offline router. */
-  private notify(ticket: TicketRecord, text: string, summary: string, stage?: TicketStage): void {
-    const router = this.ctx.agents.get(ticket.routerSession)
-    if (router === undefined) return
-    try {
-      router.followup(createUserMessage({
-        content: [{ type: 'text', text }],
-        source: {
-          kind: 'bot',
-          botId: ticket.botId,
-          ticketId: ticket.id,
-          form: 'notice',
-          summary,
-          ...(stage === undefined ? {} : { stage }),
-        },
-      }))
-    } catch (error: unknown) {
-      this.ctx.logger.warn(`bot: router notice for ticket '${ticket.id}' failed: ${String(error)}`)
+  /** Record one router notice and deliver it now, unless quiet hours hold it for a digest. */
+  private async notify(ticket: TicketRecord, text: string, summary: string, stage?: TicketStage): Promise<void> {
+    const record: BotNoticeRecord = {
+      id: brandString<BotNoticeId>(`notice-${randomUUID()}`),
+      botId: ticket.botId,
+      ticketId: ticket.id,
+      routerSession: ticket.routerSession,
+      text,
+      summary,
+      createdAt: now(),
     }
+    await this.noticesTable.put(record.id, record)
+    if (isQuietAt(this.quietWindow, new Date())) return
+    const router = this.ctx.agents.get(record.routerSession)
+    if (router !== undefined) {
+      try {
+        router.followup(createUserMessage({
+          content: [{ type: 'text', text }],
+          source: {
+            kind: 'bot',
+            botId: record.botId,
+            ticketId: record.ticketId,
+            form: 'notice',
+            summary,
+            ...(stage === undefined ? {} : { stage }),
+          },
+        }))
+      } catch (error: unknown) {
+        this.ctx.logger.warn(`bot: router notice for ticket '${ticket.id}' failed: ${String(error)}`)
+      }
+    }
+    await this.noticesTable.update(record.id, current => ({ ...current, deliveredAt: now() }))
   }
 
   /** Register the four model tools and return their combined disposer. */
