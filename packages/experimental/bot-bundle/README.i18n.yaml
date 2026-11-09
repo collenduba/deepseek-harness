@@ -3,32 +3,32 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/bot-bundle/README.md
 /:
-  en: ed72f214ee02691c
+  en: 4063c3b7e12ee138
   zh: 7770008737606d35
 /deepseek-ai-dsh-bot-bundle:
   en: ea3869d8d3730cb9
   zh: 23e2e6feaaf336d3
 /deepseek-ai-dsh-bot-bundle/summary:
-  en: 55a8c13049ae2982
-  zh: 452a57ac295a9fc3
+  en: f1003f4396467174
+  zh: b5f8c9ec78dc4af5
 /deepseek-ai-dsh-bot-bundle/table-of-contents:
   en: 93327a069538b437
   zh: 81f14562682a2e0a
 /deepseek-ai-dsh-bot-bundle/use-this-package:
-  en: 7f1c8f244b7a4890
-  zh: df283b5d14d32360
+  en: 1b28757d4b29b068
+  zh: 8bd2a29730d38ea2
 /deepseek-ai-dsh-bot-bundle/presets:
-  en: 17395e045ac153f2
-  zh: b85a98b29b02b127
+  en: 2a698ab19c08e23e
+  zh: d1d499f6fc726f06
 /deepseek-ai-dsh-bot-bundle/model-experience:
   en: 83c93011d4d6e302
   zh: c373ea4511e1b078
 /deepseek-ai-dsh-bot-bundle/model-experience/kv-cache-effect:
-  en: b8b99df394bd4487
+  en: ddac10eef4f2c693
   zh: fd789059a217474b
 /deepseek-ai-dsh-bot-bundle/known-limitations-and-deferred-work:
-  en: 853428072d1cc9ef
-  zh: 1e92f7bfd9eda991
+  en: 284f04750b3fa3fa
+  zh: 0720f121ff765993
 /deepseek-ai-dsh-bot-bundle/known-limitations-and-deferred-work/dev-note:
   en: 996276e9ddc7e7b4
   zh: e2705991075889e6

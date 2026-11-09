@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-bot-bundle",
-  "description": "Compose durable bots with router and worker agent presets",
+  "description": "Bots as durable agents: router, worker, and reviewer presets, panel row, and the GitHub source",
   "version": "0.2.2-rc.1",
   "publishConfig": {
     "access": "public"
@@ -38,7 +38,9 @@
     "@deepseek-ai/cordis": "workspace:~"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:~"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/cordis-plugin-include": "workspace:~",
+    "js-yaml": "^4.3.2"
   },
   "dsh": {
     "bundle": {
