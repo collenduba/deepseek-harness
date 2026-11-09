@@ -27,7 +27,7 @@ kind: "package-bundle"
 dsh plugin --profile web add @deepseek-ai/dsh-bot-bundle
 ```
 
-用 **Bot router** preset 开启对话，调用 `bot_create`，再让 `bot_open_ticket` 所属的 Bot 使用 `preset: "bot-worker"`，这样每个工单的会话都会挂载执行组合。token、存储与执行行为属于 `dsh-bot`。审阅拉取请求时改用 `preset: "bot-reviewer"` 创建 Bot：它挂载只读文件访问与 shell，审阅因此可以检查 worktree 并运行检查，而没有会改动检出的工具。
+用 **Bot router** preset 开启对话，调用 `bot_create`，再让 `bot_open_ticket` 所属的 Bot 使用 `preset: "bot-worker"`，这样每个工单的会话都会挂载执行组合。token、存储与执行行为属于 `dsh-bot`。审阅拉取请求时改用 `preset: "bot-reviewer"` 创建 Bot：它只挂载搜索、shell、工作目录与待办，审阅因此可以检查 worktree 并运行检查，而没有会改动检出的工具。
 
 <a id="presets"></a>
 ## Preset
@@ -36,7 +36,7 @@ dsh plugin --profile web add @deepseek-ai/dsh-bot-bundle
 |---|---|---|
 | `bot-router` | 持有 Bot 并接收其报告的对话。 | 人格与时间上下文；全局注册的工具仍然可见。 |
 | `bot-worker` | 单个工单运行的无人值守会话。 | 文件读写、搜索、shell、后台作业、待办与技能。没有询问人、展示界面、修改配置、调度工作或访问 Web 的工具。 |
-| `bot-reviewer` | 拉取请求审阅运行的无人值守会话。 | 只读文件访问、搜索、shell、工作目录与待办。没有写入或编辑工具，因此审阅无法改动检出内容。 |
+| `bot-reviewer` | 拉取请求审阅运行的无人值守会话。 | 搜索、shell、工作目录与待办。刻意不挂载文件工具：审阅通过 `git`、`cat` 与 `grep` 读取，没有任何工具能写入检出。 |
 
 执行 preset 刻意收窄：持有 `ask_user_question` 或 `present` 的执行者会把轮次阻塞在永远不会到来的输入上。
 

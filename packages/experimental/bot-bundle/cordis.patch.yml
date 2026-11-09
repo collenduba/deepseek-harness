@@ -78,7 +78,7 @@
       config:
         id: bot-reviewer
         name: Bot reviewer
-        description: Reviews a pull request revision and reports findings.
+        description: Reviews a pull request revision with search and shell only.
         order: 22
         plugins:
           - id: persona
@@ -97,12 +97,10 @@
           - id: tool-pwsh
             name: '@deepseek-ai/dsh-tool-pwsh'
             disabled: !!js process.platform !== 'win32'
-          - id: tool-fs
-            name: '@deepseek-ai/dsh-tool-fs'
-            config:
-              applyPatch: false
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
           - id: tool-working-directory
             name: '@deepseek-ai/dsh-tool-working-directory'
           - id: tool-todo

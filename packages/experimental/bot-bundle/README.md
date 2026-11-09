@@ -27,7 +27,7 @@ Install the bundle into a profile through the Plugins page or the CLI:
 dsh plugin --profile web add @deepseek-ai/dsh-bot-bundle
 ```
 
-Start a conversation with the **Bot router** preset, call `bot_create`, then pass `preset: "bot-worker"` to `bot_open_ticket`'s bot, so each ticket's Session mounts the worker composition. Tokens, storage, and worker behavior belong to `dsh-bot`. For pull-request review, create the bot with `preset: "bot-reviewer"` instead: it mounts read-only file access and shell, so a review can inspect a worktree and run checks without any tool that edits the checkout.
+Start a conversation with the **Bot router** preset, call `bot_create`, then pass `preset: "bot-worker"` to `bot_open_ticket`'s bot, so each ticket's Session mounts the worker composition. Tokens, storage, and worker behavior belong to `dsh-bot`. For pull-request review, create the bot with `preset: "bot-reviewer"` instead: it mounts search, shell, working directory, and todo only, so a review can inspect a worktree and run checks without any tool that edits the checkout.
 
 <a id="presets"></a>
 ## Presets
@@ -36,7 +36,7 @@ Start a conversation with the **Bot router** preset, call `bot_create`, then pas
 |---|---|---|
 | `bot-router` | The conversation that owns bots and receives their reports. | Persona and time context; every globally registered tool remains visible. |
 | `bot-worker` | The unattended Session one ticket runs in. | File read/write, search, shell, background jobs, todo, and skills. No tool that asks a person, presents UI, changes the profile, schedules work, or reaches the web. |
-| `bot-reviewer` | The unattended Session a pull-request review runs in. | Read-only file access, search, shell, working directory, and todo. No write or edit tool, so a review cannot change the checkout. |
+| `bot-reviewer` | The unattended Session a pull-request review runs in. | Search, shell, working directory, and todo. The file tools are deliberately absent: a review reads through `git`, `cat`, and `grep`, and no tool can write to the checkout. |
 
 The worker preset is deliberately narrow: a worker that holds `ask_user_question` or `present` can block a turn on input that will never arrive.
 
