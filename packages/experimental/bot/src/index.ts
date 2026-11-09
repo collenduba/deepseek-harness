@@ -724,20 +724,20 @@ export class BotRegistry extends Service {
     }))
     const ticket = this.ticketsTable.get(current.ticketId)
     const worker = ticket?.workerSession === undefined ? undefined : this.ctx.agents.get(ticket.workerSession)
-    if (worker !== undefined) {
-      try {
-        worker.followup(createUserMessage({
-          content: [{ type: 'text', text: `Approval ${id} was ${decision}.${updated.note === undefined ? '' : ` Note: ${updated.note}`}` }],
-          source: { kind: 'bot', botId: current.botId, ticketId: current.ticketId, form: 'notice', summary: `Approval ${id} ${decision}` },
-        }))
-        const resumed = await this.ticketsTable.update(current.ticketId, (row) => {
-          if (row.stage !== 'waiting' && row.stage !== 'blocked') return row
-          return { ...row, stage: 'working', updatedAt: now() }
-        })
+    if (ticket === undefined || worker === undefined) return updated
+    if (ticket.stage !== 'waiting' && ticket.stage !== 'working') return updated
+    try {
+      worker.followup(createUserMessage({
+        content: [{ type: 'text', text: `Approval ${id} was ${decision}.${updated.note === undefined ? '' : ` Note: ${updated.note}`}` }],
+        source: { kind: 'bot', botId: current.botId, ticketId: current.ticketId, form: 'notice', summary: `Approval ${id} ${decision}` },
+      }))
+      if (ticket.stage === 'waiting') {
+        const resumed = await this.ticketsTable.update(current.ticketId, row =>
+          row.stage === 'waiting' ? { ...row, stage: 'working', updatedAt: now() } : row)
         if (resumed.stage === 'working') this.armBudget(current.ticketId)
-      } catch (error: unknown) {
-        this.ctx.logger.warn(`bot: approval notice for '${id}' failed: ${String(error)}`)
       }
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`bot: approval notice for '${id}' failed: ${String(error)}`)
     }
     return updated
   }
@@ -835,14 +835,6 @@ export class BotRegistry extends Service {
           this.armBudget(id)
         } catch (error: unknown) {
           this.ctx.logger.warn(`bot: startup reconciliation of ticket '${id}' failed: ${String(error)}`)
-        }
-      }
-      for (const bot of this.list()) {
-        if (bot.status !== 'active') continue
-        try {
-          await this.pumpQueue(bot.id)
-        } catch (error: unknown) {
-          this.ctx.logger.warn(`bot: startup pump for bot '${bot.id}' failed: ${String(error)}`)
         }
       }
     } finally {

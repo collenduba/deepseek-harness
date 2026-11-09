@@ -294,7 +294,7 @@ describe('tickets', () => {
     }
   })
 
-  it('blocks workers that are no longer running and starts the queue', async () => {
+  it('blocks workers that are no longer running and leaves the queue for the next event', async () => {
     const { ctx, workers } = await harness({ maxWorkersPerBot: 1 })
     const bot = await ctx.bots.create({
       name: 'reviewer', job: 'Review pull requests', workspace: '/tmp/work', routerSession: ROUTER,
@@ -306,7 +306,7 @@ describe('tickets', () => {
     const tickets = ctx.bots.ticketsOf(bot.id)
     expect(tickets.find(entry => entry.id === first.id)?.stage).toBe('blocked')
     expect(tickets.find(entry => entry.id === first.id)?.summary).toContain('not running')
-    expect(tickets.find(entry => entry.id === second.id)?.stage).toBe('working')
+    expect(tickets.find(entry => entry.id === second.id)?.stage).toBe('queued')
   })
 
   it('disables the budget when workerTimeoutMinutes is 0', async () => {
@@ -403,6 +403,27 @@ describe('tickets', () => {
       await vi.advanceTimersByTimeAsync(20_000)
       expect(workers.get(ticket.workerSession!)?.cancel).toHaveBeenCalled()
       expect(ctx.bots.ticketsOf(bot.id)[0]?.stage).toBe('blocked')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not revive a blocked ticket when an approval arrives', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, followups } = await harness({ workerTimeoutMinutes: 1 })
+      const bot = await ctx.bots.create({
+        name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER,
+      })
+      const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+      const approval = await ctx.bots.requestApproval(ticket.id, 'merge', '{}')
+      await ctx.bots.report(ticket.workerSession!, ticket.id, { stage: 'waiting', summary: 'Need a decision.' })
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(ctx.bots.ticketsOf(bot.id)[0]?.stage).toBe('blocked')
+      const before = followups.length
+      await ctx.bots.decideApproval(approval.id, 'approved')
+      expect(ctx.bots.ticketsOf(bot.id)[0]?.stage).toBe('blocked')
+      expect(followups.length).toBe(before)
     } finally {
       vi.useRealTimers()
     }
