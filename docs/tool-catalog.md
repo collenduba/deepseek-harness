@@ -597,6 +597,13 @@ Create a durable bot in this conversation. The conversation becomes the bot's ro
     "preset": {
       "type": "string",
       "description": "Optional worker agent preset id. Omit to use the deployment default."
+    },
+    "tools": {
+      "type": "array",
+      "description": "Optional tool names its workers may call. Omit to allow every tool.",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "required": [

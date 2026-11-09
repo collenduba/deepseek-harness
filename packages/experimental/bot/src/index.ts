@@ -122,6 +122,25 @@ export function requireApproval(
   return { required: true, approved: approvedCommands.has(command), command }
 }
 
+/** Tools every bot worker keeps regardless of its allowlist. */
+export const BOT_PROTOCOL_TOOLS: readonly string[] = [
+  'bot_handoff',
+  'bot_remember',
+  'bot_report',
+  'bot_request_approval',
+]
+
+/**
+ * Whether a bot's worker may call one tool.
+ * @param granted - the bot's allowlist; undefined means every tool.
+ * @param toolName - the tool being called.
+ * @returns true when the call is allowed.
+ */
+export function capabilityAllows(granted: readonly string[] | undefined, toolName: string): boolean {
+  if (granted === undefined) return true
+  return granted.includes(toolName) || BOT_PROTOCOL_TOOLS.includes(toolName)
+}
+
 /** Current time as the ISO-8601 string every stored timestamp uses. */
 function now(): string {
   return new Date().toISOString()
@@ -212,6 +231,7 @@ export class BotRegistry extends Service {
     const workspace = requireText(input.workspace, 'workspace')
     if (!isAbsolute(workspace)) throw new TypeError(`workspace must be absolute, got '${workspace}'`)
     const preset = input.preset === undefined ? undefined : requireText(input.preset, 'preset')
+    const tools = input.tools === undefined ? undefined : input.tools.map(tool => requireText(tool, 'tools'))
     for (const [, bot] of this.botsTable.entries()) {
       if (String(bot.routerSession) !== String(input.routerSession)) continue
       if (bot.name === name) throw new Error(`this Session already owns a bot named '${name}'`)
@@ -224,6 +244,7 @@ export class BotRegistry extends Service {
       workspace,
       routerSession: input.routerSession,
       ...(preset === undefined ? {} : { preset }),
+      ...(tools === undefined ? {} : { tools }),
       status: 'active',
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -415,9 +436,17 @@ export class BotRegistry extends Service {
    * request whose payload is exactly that command.
    */
   private async guard(exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision> {
-    if (!this.enforceApprovals || exec.agent === undefined) return await next()
+    if (exec.agent === undefined) return await next()
     const ticket = this.ticketOfWorker(exec.agent.session.id)
     if (ticket === undefined) return await next()
+    const owner = this.botsTable.get(ticket.botId)
+    if (owner !== undefined && !capabilityAllows(owner.tools, exec.name)) {
+      return {
+        kind: 'deny',
+        reason: `This bot grants only ${(owner.tools ?? []).join(', ')}, plus its reporting tools.`,
+      }
+    }
+    if (!this.enforceApprovals) return await next()
     const approvals = this.approvalsOf(ticket.botId).filter(approval => String(approval.ticketId) === String(ticket.id))
     const approved = new Set(approvals.filter(approval => approval.status === 'approved').map(approval => approval.payload))
     const decision = requireApproval(this.guardedTools, approved, { name: exec.name, arguments: exec.arguments })
@@ -635,6 +664,7 @@ export class BotRegistry extends Service {
           job: { type: 'string', required: true, description: 'What the bot is for, in one sentence.' },
           workspace: { type: 'string', required: true, description: 'Absolute directory the bot\'s workers run in.' },
           preset: { type: 'string', description: 'Optional worker agent preset id. Omit to use the deployment default.' },
+          tools: { type: 'array', items: { type: 'string' }, description: 'Optional tool names its workers may call. Omit to allow every tool.' },
         },
         output: {
           schema: {
@@ -655,6 +685,7 @@ export class BotRegistry extends Service {
             job: args.job,
             workspace: args.workspace,
             ...(args.preset === undefined ? {} : { preset: args.preset }),
+            ...(args.tools === undefined ? {} : { tools: args.tools }),
             routerSession: exec.agent.session.id,
           })
           return { botId: bot.id, name: bot.name, workspace: bot.workspace }
