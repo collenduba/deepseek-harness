@@ -5,7 +5,8 @@
  */
 
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { mkdir } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { execa } from 'execa'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
@@ -289,8 +290,9 @@ export async function prepareReviewWorktree(
   const path = join(input.root, `review-${input.pullRequest.number}-${short}`)
   const ref = `refs/dsh-review/${input.pullRequest.number}-${short}`
   await mkdir(input.root, { recursive: true })
-  // Retry-safe: a previous attempt may have left the registration or the ref.
+  // Retry-safe: a previous attempt may have left a registration, a directory, or the ref.
   await git(options, input.repoPath, ['worktree', 'remove', '--force', path], input.signal).catch(() => {})
+  await rm(path, { recursive: true, force: true })
   await git(options, input.repoPath, ['update-ref', '-d', ref], input.signal).catch(() => {})
   await git(options, input.repoPath, ['fetch', 'origin', `pull/${input.pullRequest.number}/head:${ref}`], input.signal)
   await git(options, input.repoPath, ['worktree', 'add', '--detach', path, ref], input.signal)
@@ -311,6 +313,8 @@ export async function removeReviewWorktree(
       const message = error instanceof Error ? error.message : String(error)
       if (!message.includes('is not a working tree') && !message.includes('No such file')) throw error
     })
+  await rm(input.path, { recursive: true, force: true })
+  if (existsSync(input.path)) throw new Error(`worktree '${input.path}' still exists after removal`)
   await git(options, input.repoPath, ['worktree', 'prune'], input.signal).catch(() => {})
   await git(options, input.repoPath, ['update-ref', '-d', input.ref], input.signal).catch(() => {})
 }

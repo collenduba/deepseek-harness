@@ -36,7 +36,7 @@ export interface Config {
   pollSeconds: number
   /** `gh` executable name or absolute path. */
   ghCommand: string
-  /** Deadline for one `gh` invocation. */
+  /** Deadline for one `gh` or `git` invocation. */
   timeoutMs: number
   /** What the first poll does with issues that already exist. */
   backlog: 'ignore' | 'open'
@@ -66,7 +66,7 @@ export const Config: z<Config> = z.object({
   query: z.string().default('').description('gh search query; empty lists every open issue or pull request.'),
   pollSeconds: z.natural().min(15).default(60).description('Seconds between polls.'),
   ghCommand: z.string().default('gh').description('gh executable name or absolute path.'),
-  timeoutMs: z.natural().min(1_000).default(30_000).description('Deadline for one gh invocation.'),
+  timeoutMs: z.natural().min(1_000).default(30_000).description('Deadline for one gh or git invocation.'),
   backlog: z.union([z.const('ignore'), z.const('open')]).default('ignore')
     .description('ignore marks existing issues as handled; open tickets every open issue on the first poll.'),
   mode: z.union([z.const('observe'), z.const('auto')]).default('observe')
@@ -101,6 +101,12 @@ export const inject = ['bots', 'storageDomain', 'tools']
  * @param config - one repository watch.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
+  if (config.worktreeRoot !== '' && !isAbsolute(config.worktreeRoot)) {
+    throw new Error(`worktreeRoot must be an absolute path: ${config.worktreeRoot}`)
+  }
+  if (config.worktrees && config.target !== 'pull-requests') {
+    throw new Error('worktrees require target: pull-requests')
+  }
   const domain = await ctx.storageDomain.open(sourceDomainSpec)
   ctx.effect(() => () => domain.close(), 'bot-source-github.domainClose')
   const state: SourceState = {
@@ -293,9 +299,6 @@ export async function runSource(
   state: SourceState,
 ): Promise<void> {
   const { cursors, candidates } = state
-  if (config.worktreeRoot !== '' && !isAbsolute(config.worktreeRoot)) {
-    throw new Error(`worktreeRoot must be an absolute path: ${config.worktreeRoot}`)
-  }
   const key = config.repository as SourceKey
   const pullLister = deps.listPullRequests?.bind(deps)
   if (config.target === 'pull-requests' && pullLister === undefined) {
@@ -309,6 +312,11 @@ export async function runSource(
         : (await pullLister(signal)).map(pullRequest => `${pullRequest.number}@${pullRequest.headRefOid}`)
     await cursors.put(key, { seen: seed.slice(0, config.maxSeen) })
   }
+  const sweepBot = ctx.bots.list().find(candidate => candidate.name === config.bot)
+  const sweepRemove = deps.removeWorktree?.bind(deps)
+  if (sweepBot !== undefined && sweepRemove !== undefined) {
+    await cleanWorktrees(ctx, config, deps, candidates, sweepBot, sweepRemove, signal)
+  }
   while (!isAborted(signal)) {
     try {
       if (pullLister !== undefined) {
@@ -320,10 +328,7 @@ export async function runSource(
           : undefined
         if (config.mode === 'auto' && bot === undefined) throw new Error(`no bot named '${config.bot}'`)
         const prepare = config.worktrees ? deps.prepareWorktree?.bind(deps) : undefined
-        const remove = config.worktrees ? deps.removeWorktree?.bind(deps) : undefined
-        if (config.worktrees && (prepare === undefined || remove === undefined)) {
-          throw new Error('worktrees are enabled but the source has no worktree effects')
-        }
+        const remove = deps.removeWorktree?.bind(deps)
         if (fresh.length > 0) {
           const failed = new Set<number>()
           for (const pullRequest of fresh) {

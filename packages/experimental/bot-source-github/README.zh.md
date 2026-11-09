@@ -104,7 +104,7 @@ schema 在挂载期间静态；结果追加到对话。
 
 #### 模型看到什么
 
-每个被审阅的修订一条用户消息：PR 编号、标题、URL、head SHA 与 base 分支、`git worktree add ../review-<n>-<sha>` 建立行、diff 命令、仓库约定提醒、要运行的检查，以及要求的发现格式与确切的 `gh pr comment` 命令。
+每个被审阅的修订一条用户消息：PR 编号、标题、URL、head SHA 与 base 分支、建立步骤或“运行时已把执行者放进独立检出”的说明、diff 命令、仓库约定提醒、要运行的检查，以及要求的发现格式与确切的 `gh pr comment` 命令。
 
 #### Token 影响
 

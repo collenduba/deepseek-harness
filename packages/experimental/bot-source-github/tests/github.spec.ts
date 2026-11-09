@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -79,6 +79,13 @@ describe('review worktrees', () => {
       expect(existsSync(path)).toBe(false)
       expect(() => run('-C', repo, 'show-ref', ref)).toThrow()
       await expect(removeReviewWorktree(options, { repoPath: repo, path, ref, signal })).resolves.toBeUndefined()
+
+      await mkdir(path)
+      await writeFile(join(path, 'junk.txt'), 'left behind\n')
+      await expect(prepareReviewWorktree(options, {
+        repoPath: repo, root: workRoot, pullRequest: pr(1, sha), signal,
+      })).resolves.toBe(path)
+      expect(existsSync(join(path, 'junk.txt'))).toBe(false)
     } finally {
       await rm(root, { recursive: true, force: true })
     }

@@ -42,7 +42,7 @@ Mount the plugin with a bot and a repository. The shipped `@deepseek-ai/dsh-bot-
 | `query` | empty | `gh` search query; empty lists every open issue or pull request. |
 | `pollSeconds` | `60` | Seconds between polls; at least 15. |
 | `ghCommand` | `gh` | Executable name or absolute path. |
-| `timeoutMs` | `30000` | Deadline for one `gh` invocation. |
+| `timeoutMs` | `30000` | Deadline for one `gh` or `git` invocation. |
 | `backlog` | `ignore` | `ignore` marks existing issues handled at startup; `open` tickets every open issue on the first poll. |
 | `mode` | `observe` | `observe` records a candidate per new issue and opens nothing; `auto` opens the ticket. |
 | `target` | `issues` | `issues` watches open issues; `pull-requests` watches open pull-request revisions. |
@@ -73,7 +73,7 @@ The `gh` CLI must be authenticated on the Host. The source inherits the scrubbed
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-- **Cursor and candidates.** The `bot_source_github` domain (version 4) stores one `{ seen: string[] }` record per repository and one candidate record per new issue with a deterministic id. The first poll writes the seed; every later poll compares against it. Versions 1 through 3 load unchanged.
+- **Cursor and candidates.** The `bot_source_github` domain (version 7) stores one `{ seen: string[] }` record per repository and one candidate record per new issue or pull-request revision with a deterministic id. Versions 1 through 6 load unchanged. The first poll writes the seed; every later poll compares against it. Versions 1 through 3 load unchanged.
 - **Delivery.** Each fresh issue records a candidate. In `auto` mode the source opens one ticket titled `#<number> <title>`, marks the candidate `opened` with the ticket id, and reports as before. In `observe` mode it logs what it would have done and leaves the candidate `would-open`. Issues are handled oldest first, and the cursor advances only after the whole batch is recorded, so a failure retries the batch on the next poll.
 - **Testability.** The poll loop takes its list and comment effects as arguments, so a test runs observe, auto, admission, and write-back against real storage with no `gh` process.
 - **Pull requests.** With `target: pull-requests`, each `number@head` pair is its own candidate, so a new push is a new review and an old revision is never reopened. Drafts are skipped unless `includeDrafts` is on. The ticket instruction asks the worker to create a worktree for the head SHA, review against the base, follow the repository's conventions, run cheap checks, post one `gh pr comment` summary, and never push or merge.
@@ -104,7 +104,7 @@ The schemas are static for the mount lifetime; a result appends to the conversat
 
 #### What the model sees
 
-One user message per reviewed revision: the PR number, title, URL, head SHA and base branch, a `git worktree add ../review-<n>-<sha>` setup line, the diff command, the repository-convention reminder, the checks to run, and the exact `gh pr comment` command with the requested finding format.
+One user message per reviewed revision: the PR number, title, URL, head SHA and base branch, either the setup steps or a statement that the runtime already placed the worker in an isolated checkout, the diff command, the repository-convention reminder, the checks to run, and the exact `gh pr comment` command with the requested finding format.
 
 #### Token effect
 
