@@ -10,7 +10,7 @@ import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the `ctx.bots` Service declaration from the bot package.
 import type {} from '@deepseek-ai/dsh-bot'
 import z from '@deepseek-ai/schemastery'
-import { candidateOf, commentIssue, freshIssues, listIssues, reportComment, ticketInstruction } from './github.ts'
+import { admitted, candidateOf, commentIssue, freshIssues, listIssues, reportComment, ticketInstruction } from './github.ts'
 import type { PollOptions } from './github.ts'
 import { sourceDomainSpec } from './spec.ts'
 import type { CandidateId, SourceCandidate, SourceKey } from './spec.ts'
@@ -36,6 +36,8 @@ export interface Config {
   mode: 'observe' | 'auto'
   /** Whether a finished ticket comments its result on the issue. */
   writeBack: boolean
+  /** Logins allowed to open work; empty admits everyone. */
+  allowedAuthors: string[]
   /** How many handled issue numbers one repository remembers. */
   maxSeen: number
 }
@@ -53,6 +55,8 @@ export const Config: z<Config> = z.object({
     .description('observe records what it would do without opening tickets; auto opens them.'),
   writeBack: z.boolean().default(false)
     .description('Comment each finished ticket result on its issue.'),
+  allowedAuthors: z.array(z.string()).default([])
+    .description('Logins allowed to open work through this source; empty admits everyone.'),
   maxSeen: z.natural().min(1).max(2_000).default(200).description('How many handled issue numbers one repository remembers.'),
 })
 
@@ -154,6 +158,11 @@ async function watch(ctx: Context, config: Config, signal: AbortSignal): Promise
           if (config.mode === 'auto' && bot === undefined) throw new Error(`no bot named '${config.bot}'`)
           for (const issue of fresh) {
             const candidate = candidateOf(config.repository, issue, new Date().toISOString())
+            if (!admitted(issue.author.login, config.allowedAuthors)) {
+              await candidates.put(candidate.id, { ...candidate, state: 'filtered' })
+              ctx.logger.info(`bot-source-github: #${issue.number} is from an author outside the allowlist`)
+              continue
+            }
             await candidates.put(candidate.id, candidate)
             if (bot === undefined) {
               ctx.logger.info(`bot-source-github: observe only, would open a ticket for #${issue.number}`)

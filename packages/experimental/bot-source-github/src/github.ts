@@ -17,6 +17,7 @@ export const issueSchema = z.object({
   body: z.string().default(''),
   url: z.string().min(1),
   updatedAt: z.string().min(1),
+  author: z.object({ login: z.string().min(1) }),
 })
 
 /** A validated issue record. */
@@ -75,6 +76,18 @@ export function candidateOf(repository: string, issue: GithubIssue, createdAt: s
     state: 'would-open',
     createdAt,
   }
+}
+
+/**
+ * Whether an issue author may open work.
+ * @param author - the issue author's login.
+ * @param allowed - configured logins; empty admits everyone.
+ * @returns true when the author is admitted.
+ */
+export function admitted(author: string, allowed: readonly string[]): boolean {
+  if (allowed.length === 0) return true
+  const login = author.toLowerCase()
+  return allowed.some(entry => entry.toLowerCase() === login)
 }
 
 /**
@@ -161,7 +174,7 @@ export async function listIssues(options: PollOptions, signal: AbortSignal): Pro
     '--repo', options.repository,
     '--state', 'open',
     '--search', options.query,
-    '--json', 'number,title,body,url,updatedAt',
+    '--json', 'number,title,body,url,updatedAt,author',
     '--limit', '30',
   ], {
     env: { ...scrubbedParentEnv(), ...GH_ENV },
