@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { candidateOf, freshIssues, parseIssues, ticketInstruction } from '../src/github.ts'
+import { candidateOf, freshIssues, parseIssues, reportComment, ticketInstruction } from '../src/github.ts'
 import type { GithubIssue } from '../src/github.ts'
 
 const issue = (number: number, over: Partial<GithubIssue> = {}): GithubIssue => ({
@@ -42,6 +42,15 @@ describe('candidateOf', () => {
     expect(first.id).toBe(again.id)
     expect(first).toMatchObject({ repository: 'o/r', number: 7, state: 'would-open' })
     expect(first.ticketId).toBeUndefined()
+  })
+})
+
+describe('reportComment', () => {
+  it('names the bot, ticket, stage, and summary', () => {
+    expect(reportComment('reviewer', { title: '#12 Retry login', stage: 'ready', summary: 'Fixed in #34.' }))
+      .toBe('Bot "reviewer" finished ticket #12 Retry login with stage ready: Fixed in #34.')
+    expect(reportComment('reviewer', { title: '#12 Retry login', stage: 'failed', summary: '  ' }))
+      .toContain('with stage failed: no summary')
   })
 })
 

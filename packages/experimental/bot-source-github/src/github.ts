@@ -78,6 +78,20 @@ export function candidateOf(repository: string, issue: GithubIssue, createdAt: s
 }
 
 /**
+ * The comment one finished ticket leaves on its issue.
+ * @param botName - the bot that ran the ticket.
+ * @param ticket - the reported ticket.
+ * @returns the comment body.
+ */
+export function reportComment(
+  botName: string,
+  ticket: { readonly title: string; readonly stage: string; readonly summary?: string | undefined },
+): string {
+  const summary = ticket.summary === undefined || ticket.summary.trim() === '' ? 'no summary' : ticket.summary.trim()
+  return `Bot "${botName}" finished ticket ${ticket.title} with stage ${ticket.stage}: ${summary}`
+}
+
+/**
  * The instruction one ticket's worker receives.
  * @param repository - `owner/name` of the repository.
  * @param issue - the issue the ticket is about.
@@ -92,6 +106,46 @@ export function ticketInstruction(repository: string, issue: GithubIssue): strin
     '',
     body,
   ].join('\n')
+}
+
+/** The non-interactive, scrubbed environment every `gh` child receives. */
+const GH_ENV = {
+  GH_PROMPT_DISABLED: '1',
+  GH_NO_UPDATE_NOTIFIER: '1',
+  GH_PAGER: '',
+  NO_COLOR: '1',
+}
+
+/**
+ * Comment one result on an issue.
+ * @param options - repository, executable, and deadline.
+ * @param issueNumber - the issue to comment on.
+ * @param body - the comment text.
+ * @param signal - poll cancellation.
+ * @throws when `gh` cannot run or exits non-zero.
+ */
+export async function commentIssue(
+  options: PollOptions,
+  issueNumber: number,
+  body: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const result = await execa(options.ghCommand, [
+    'issue', 'comment', String(issueNumber),
+    '--repo', options.repository,
+    '--body', body,
+  ], {
+    env: { ...scrubbedParentEnv(), ...GH_ENV },
+    extendEnv: false,
+    stdin: 'ignore',
+    reject: false,
+    timeout: options.timeoutMs,
+    cancelSignal: signal,
+    maxBuffer: 8 * 1024 * 1024,
+  })
+  if (result.isCanceled) throw signal.reason
+  if (result.timedOut) throw new Error(`gh issue comment timed out after ${options.timeoutMs}ms`)
+  if (result.exitCode !== 0) throw new Error(`gh issue comment failed: ${result.stderr}`)
 }
 
 /**
@@ -110,13 +164,7 @@ export async function listIssues(options: PollOptions, signal: AbortSignal): Pro
     '--json', 'number,title,body,url,updatedAt',
     '--limit', '30',
   ], {
-    env: {
-      ...scrubbedParentEnv(),
-      GH_PROMPT_DISABLED: '1',
-      GH_NO_UPDATE_NOTIFIER: '1',
-      GH_PAGER: '',
-      NO_COLOR: '1',
-    },
+    env: { ...scrubbedParentEnv(), ...GH_ENV },
     extendEnv: false,
     stdin: 'ignore',
     reject: false,
