@@ -52,13 +52,6 @@
             name: '@deepseek-ai/dsh-tool-fs'
             config:
               applyPatch: false
-          - id: tool-fs
-            name: '@deepseek-ai/dsh-tool-fs'
-            config:
-              read: true
-              write: false
-              edit: false
-              applyPatch: false
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
             config:

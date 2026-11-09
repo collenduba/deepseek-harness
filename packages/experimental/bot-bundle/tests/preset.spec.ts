@@ -41,6 +41,13 @@ describe('bot presets', () => {
     expect(search).toMatchObject({ sampleOverCapGlobResults: false })
   })
 
+  it('never declares one plugin id twice in a preset', () => {
+    for (const id of ['preset-bot-worker', 'preset-bot-reviewer']) {
+      const ids = preset(id).map(plugin => plugin.id)
+      expect(new Set(ids).size, `${id} repeats a plugin id`).toBe(ids.length)
+    }
+  })
+
   it('gives both unattended presets the required tool configs', () => {
     for (const id of ['preset-bot-worker', 'preset-bot-reviewer']) {
       const todo = preset(id).find(plugin => plugin.id === 'tool-todo')?.config
