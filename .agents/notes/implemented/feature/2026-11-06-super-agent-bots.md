@@ -28,7 +28,7 @@ The domain moved through versions 1–10 as tables and optional fields were adde
 
 ### Sessions
 
-The Session that calls `bot_create` becomes the bot's router. Each ticket gets its own root Session through `ctx.agents.create`: the bot's workspace, an optional agent preset, a title of `<bot>: <ticket>`, and one instruction message. The worker is not a subagent, so it survives its creator and appears in the sidebar. A worker that calls `bot_report` is validated against the ticket's recorded worker Session; the report updates the ticket and reaches the router as a structured notice. A bot runs at most `maxWorkersPerBot` workers at once (default 2): further tickets wait in `queued`, and a terminal report starts the oldest. A handoff chain is refused past `maxHandoffDepth` (default 3).
+The Session that calls `bot_create` becomes the bot's router. Each ticket gets its own root Session through `ctx.agents.create`: the bot's workspace, an optional agent preset, a title of `<bot>: <ticket>`, and one instruction message. The worker is not a subagent, so it survives its creator and appears in the sidebar. A worker that calls `bot_report` is validated against the ticket's recorded worker Session; the report updates the ticket and reaches the router as a structured notice. A bot runs at most `maxWorkersPerBot` workers at once (default 2): further tickets wait in `queued`, and a terminal report starts the oldest. A worker has a wall-clock budget (default 30 minutes) that counts time spent waiting for an answer; a delivered answer moves a waiting ticket back to working and restarts the clock, while a blocked ticket stays blocked: expiry cancels it, reports the ticket blocked, and fills the slot; startup marks workers that are no longer running as blocked and pumps queued tickets once the composition is ready. A handoff chain is refused past `maxHandoffDepth` (default 3).
 
 ### Tools
 
@@ -101,3 +101,4 @@ The `bot` Session projection folds the logged tool calls, results, and notices i
 - Source behaviour is polling only and stops with the Host, so a bot is not a hosted service.
 - The panel shows work and can open a worker Session, but it has no detail page and no cross-bot roster.
 - Queued tickets have no worker Session until a slot frees; a person's message does not get an extra slot.
+- A worker stopped by its budget or by a restart leaves its Session log but does not resume its turn automatically; the ticket records the interruption.

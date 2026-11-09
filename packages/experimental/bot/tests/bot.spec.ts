@@ -9,7 +9,7 @@ import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import BotRegistry, {
   approvalRecordSchema, botProjection, botRecordSchema, isQuietAt, memoryRecordSchema, parseQuietHours,
-  ticketRecordSchema, blockedCommand, capabilityAllows, isHardFloor, requireApproval, workerInstruction,
+  ticketRecordSchema, blockedCommand, botDomainSpec, capabilityAllows, isHardFloor, requireApproval, workerInstruction,
 } from '../src/index.ts'
 import type { BotApprovalId, BotId, BotMemoryId, BotProjectionState, TicketId } from '../src/index.ts'
 
@@ -23,6 +23,8 @@ async function harness(config: {
   holdResults?: boolean
   maxWorkersPerBot?: number
   maxHandoffDepth?: number
+  workerTimeoutMinutes?: number
+  seed?: (facility: DomainFacility) => Promise<void>
 } = {}) {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
@@ -32,15 +34,43 @@ async function harness(config: {
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain' as string, facility)
   const followups: string[] = []
+  const pushNotice = (message: {
+    content: { type: string; text: string }[]
+    source?: { form?: string }
+  }): void => {
+    if (message.source?.form !== 'notice') return
+    followups.push(message.content[0]?.text ?? '')
+  }
   ctx.provide('tools' as string, { register: () => () => {} })
+  interface FakeAgent {
+    status: 'idle' | 'running'
+    readonly session: { id: SessionId }
+    readonly cancel: ReturnType<typeof vi.fn>
+    readonly followup: (message: { content: { type: string; text: string }[] }) => void
+  }
+  const workers = new Map<string, FakeAgent>()
   ctx.provide('agents' as string, {
-    create: async () => ({
-      agent: { session: { id: WORKER }, followup: () => {} },
-      dispose: async () => {},
-    }),
-    get: () => ({ followup: (message: { content: { type: string; text: string }[] }) => {
-      followups.push(message.content[0]?.text ?? '')
-    } }),
+    create: async (options: { sessionId?: SessionId } = {}) => {
+      const id = options.sessionId ?? WORKER
+      const agent: FakeAgent = {
+        status: 'running',
+        session: { id },
+        cancel: vi.fn(() => { agent.status = 'idle' }),
+        followup: pushNotice,
+      }
+      workers.set(id, agent)
+      return { agent, dispose: async () => {} }
+    },
+    get: (id: SessionId) => workers.get(id) ?? (id === ROUTER
+      ? {
+        status: 'inactive',
+        session: { id },
+        cancel: () => {},
+        followup: (message: { content: { type: string; text: string }[] }) => {
+          followups.push(message.content[0]?.text ?? '')
+        },
+      }
+      : undefined),
   })
   ctx.provide('agentDefaultModel' as string, { currentSelection: () => ({ provider: 'mock', model: 'mock' }) })
   ctx.provide('sessionTitle' as string, { rename: () => {} })
@@ -52,6 +82,7 @@ async function harness(config: {
       detachSession: async () => {},
     }),
   })
+  if (config.seed !== undefined) await config.seed(facility)
   await ctx.plugin(BotRegistry, {
     quietHours: config.quietHours ?? '',
     digestMinutes: config.digestMinutes ?? 5,
@@ -60,8 +91,9 @@ async function harness(config: {
     holdResults: config.holdResults ?? false,
     maxWorkersPerBot: config.maxWorkersPerBot ?? 2,
     maxHandoffDepth: config.maxHandoffDepth ?? 3,
+    workerTimeoutMinutes: config.workerTimeoutMinutes ?? 30,
   })
-  return { ctx, followups }
+  return { ctx, followups, workers }
 }
 
 describe('bot records', () => {
@@ -241,6 +273,200 @@ describe('tickets', () => {
     expect(firstHandoff.handoffDepth).toBe(1)
     await expect(ctx.bots.handoff(firstHandoff.id, 'third', 'Third', 'Go.'))
       .rejects.toThrow(/handoff depth 2 exceeds/)
+  })
+
+  it('cancels a worker that exceeds its budget and reports the ticket blocked', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, workers } = await harness({ workerTimeoutMinutes: 1 })
+      const bot = await ctx.bots.create({
+        name: 'reviewer', job: 'Review pull requests', workspace: '/tmp/work', routerSession: ROUTER,
+      })
+      const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(ticket.workerSession).toBeDefined()
+      expect(workers.get(ticket.workerSession!)?.cancel).toHaveBeenCalled()
+      const updated = ctx.bots.ticketsOf(bot.id).find(entry => entry.id === ticket.id)
+      expect(updated?.stage).toBe('blocked')
+      expect(updated?.summary).toContain('exceeded the 1-minute budget')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('blocks workers that are no longer running and leaves the queue for the next event', async () => {
+    const { ctx, workers } = await harness({ maxWorkersPerBot: 1 })
+    const bot = await ctx.bots.create({
+      name: 'reviewer', job: 'Review pull requests', workspace: '/tmp/work', routerSession: ROUTER,
+    })
+    const first = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'First', instruction: 'One.' })
+    const second = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Second', instruction: 'Two.' })
+    workers.clear()
+    await ctx.bots.reconcile()
+    const tickets = ctx.bots.ticketsOf(bot.id)
+    expect(tickets.find(entry => entry.id === first.id)?.stage).toBe('blocked')
+    expect(tickets.find(entry => entry.id === first.id)?.summary).toContain('not running')
+    expect(tickets.find(entry => entry.id === second.id)?.stage).toBe('queued')
+  })
+
+  it('disables the budget when workerTimeoutMinutes is 0', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, workers } = await harness({ workerTimeoutMinutes: 0 })
+      const bot = await ctx.bots.create({
+        name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER,
+      })
+      const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+      await vi.advanceTimersByTimeAsync(3_600_000)
+      expect(workers.get(ticket.workerSession!)?.cancel).not.toHaveBeenCalled()
+      expect(ctx.bots.ticketsOf(bot.id)[0]?.stage).toBe('working')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not expire a worker that already reported', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, workers } = await harness({ workerTimeoutMinutes: 1 })
+      const bot = await ctx.bots.create({
+        name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER,
+      })
+      const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+      await ctx.bots.report(ticket.workerSession!, ticket.id, { stage: 'ready', summary: 'Done.' })
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(workers.get(ticket.workerSession!)?.cancel).not.toHaveBeenCalled()
+      expect(ctx.bots.ticketsOf(bot.id)[0]?.stage).toBe('ready')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('re-arms a live worker and bounds a waiting ticket on reconciliation', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, workers } = await harness({ workerTimeoutMinutes: 1 })
+      const bot = await ctx.bots.create({
+        name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER,
+      })
+      const working = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Working', instruction: 'Work.' })
+      const waiting = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Waiting', instruction: 'Wait.' })
+      await ctx.bots.report(waiting.workerSession!, waiting.id, { stage: 'waiting', summary: 'Need input.' })
+      await ctx.bots.reconcile()
+      expect(ctx.bots.ticketsOf(bot.id).find(entry => entry.id === waiting.id)?.stage).toBe('waiting')
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(workers.get(working.workerSession!)?.cancel).toHaveBeenCalled()
+      expect(workers.get(waiting.workerSession!)?.cancel).toHaveBeenCalled()
+      const waited = ctx.bots.ticketsOf(bot.id).find(entry => entry.id === waiting.id)
+      expect(waited?.stage).toBe('blocked')
+      expect(waited?.summary).toContain('waited past')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the budget running while a worker waits for an answer', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, workers } = await harness({ workerTimeoutMinutes: 1 })
+      const bot = await ctx.bots.create({
+        name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER,
+      })
+      const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Waiting', instruction: 'Wait.' })
+      await ctx.bots.report(ticket.workerSession!, ticket.id, { stage: 'waiting', summary: 'Need input.' })
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(workers.get(ticket.workerSession!)?.cancel).toHaveBeenCalled()
+      const updated = ctx.bots.ticketsOf(bot.id)[0]
+      expect(updated?.stage).toBe('blocked')
+      expect(updated?.summary).toContain('waited past')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('restarts the clock when an answer reaches a waiting worker', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, workers } = await harness({ workerTimeoutMinutes: 1 })
+      const bot = await ctx.bots.create({
+        name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER,
+      })
+      const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+      const approval = await ctx.bots.requestApproval(ticket.id, 'merge', '{}')
+      await ctx.bots.report(ticket.workerSession!, ticket.id, { stage: 'waiting', summary: 'Need a decision.' })
+      await vi.advanceTimersByTimeAsync(50_000)
+      await ctx.bots.decideApproval(approval.id, 'approved')
+      expect(ctx.bots.ticketsOf(bot.id)[0]?.stage).toBe('working')
+      await vi.advanceTimersByTimeAsync(50_000)
+      expect(workers.get(ticket.workerSession!)?.cancel).not.toHaveBeenCalled()
+      expect(ctx.bots.ticketsOf(bot.id)[0]?.stage).toBe('working')
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(workers.get(ticket.workerSession!)?.cancel).toHaveBeenCalled()
+      expect(ctx.bots.ticketsOf(bot.id)[0]?.stage).toBe('blocked')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not revive a blocked ticket when an approval arrives', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, followups } = await harness({ workerTimeoutMinutes: 1 })
+      const bot = await ctx.bots.create({
+        name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER,
+      })
+      const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+      const approval = await ctx.bots.requestApproval(ticket.id, 'merge', '{}')
+      await ctx.bots.report(ticket.workerSession!, ticket.id, { stage: 'waiting', summary: 'Need a decision.' })
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(ctx.bots.ticketsOf(bot.id)[0]?.stage).toBe('blocked')
+      const before = followups.length
+      await ctx.bots.decideApproval(approval.id, 'approved')
+      expect(ctx.bots.ticketsOf(bot.id)[0]?.stage).toBe('blocked')
+      expect(followups.length).toBe(before)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('drops the budget when its bot is archived', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, workers } = await harness({ workerTimeoutMinutes: 1 })
+      const bot = await ctx.bots.create({
+        name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER,
+      })
+      const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+      await ctx.bots.archive(bot.id)
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(workers.get(ticket.workerSession!)?.cancel).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('marks a stranded ticket as blocked during startup reconciliation', async () => {
+    const botId = brandString<BotId>('bot-seeded')
+    const ticketId = brandString<TicketId>('ticket-seeded')
+    const stamp = '2026-11-09T00:00:00.000Z'
+    const { ctx, followups } = await harness({
+      seed: async (facility) => {
+        const domain = await facility.open(botDomainSpec)
+        await domain.table('bots').put(botId, {
+          id: botId, name: 'seeded', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER,
+          status: 'active', createdAt: stamp, updatedAt: stamp,
+        })
+        await domain.table('tickets').put(ticketId, {
+          id: ticketId, botId, title: 'Stranded', instruction: 'Go.', stage: 'working',
+          routerSession: ROUTER, workerSession: WORKER, createdAt: stamp, updatedAt: stamp,
+        })
+        await domain.close()
+      },
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(ctx.bots.ticketsOf(botId)[0]?.stage).toBe('blocked')
+    expect(ctx.bots.ticketsOf(botId)[0]?.summary).toContain('not running')
+    expect(followups.some(text => text.includes('not running'))).toBe(true)
   })
 
   it('refuses to open a ticket when no bot is bound to the Session', async () => {

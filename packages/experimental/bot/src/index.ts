@@ -69,6 +69,8 @@ export interface BotAttentionConfig {
   maxWorkersPerBot: number
   /** Deepest handoff chain a ticket may belong to. */
   maxHandoffDepth: number
+  /** Minutes one worker may run before it is cancelled; 0 disables the budget. */
+  workerTimeoutMinutes: number
 }
 
 /** A resolved quiet window, in local minutes since midnight. */
@@ -219,6 +221,8 @@ export class BotRegistry extends Service {
       .description('Worker Sessions one bot may run at once; extra tickets wait in queued.'),
     maxHandoffDepth: z.natural().max(10).default(3)
       .description('Deepest handoff chain a ticket may belong to.'),
+    workerTimeoutMinutes: z.natural().max(720).default(30)
+      .description('Minutes a worker turn may run before it is cancelled; an answer restarts the clock, and 0 disables the budget.'),
   })
 
   private botsTable!: KvTable<BotId, BotRecord>
@@ -233,6 +237,11 @@ export class BotRegistry extends Service {
   private readonly holdResults: boolean
   private readonly maxWorkersPerBot: number
   private readonly maxHandoffDepth: number
+  private readonly workerTimeoutMinutes: number
+  private readonly budgets = new Map<TicketId, ReturnType<typeof setTimeout>>()
+  private reconciling = false
+  private readonly pumping = new Set<BotId>()
+  private readonly pumpPending = new Set<BotId>()
 
   constructor(ctx: Context, config: Partial<BotAttentionConfig> = {}) {
     super(ctx, 'bots')
@@ -243,12 +252,17 @@ export class BotRegistry extends Service {
     this.holdResults = config.holdResults ?? false
     this.maxWorkersPerBot = config.maxWorkersPerBot ?? 2
     this.maxHandoffDepth = config.maxHandoffDepth ?? 3
+    this.workerTimeoutMinutes = config.workerTimeoutMinutes ?? 30
   }
 
   /** Open the domain and register the model tools. */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(botDomainSpec)
     this.ctx.effect(() => () => domain.close(), 'bot.domainClose')
+    this.ctx.effect(() => () => {
+      for (const timer of this.budgets.values()) clearTimeout(timer)
+      this.budgets.clear()
+    }, 'bot.budgets')
     this.botsTable = domain.table('bots')
     this.ticketsTable = domain.table('tickets')
     this.memoriesTable = domain.table('memories')
@@ -264,6 +278,14 @@ export class BotRegistry extends Service {
       'bot.approvalGate',
     )
     this.ctx.effect(() => this.registerTools(), 'bot.tools')
+    queueMicrotask(() => {
+      void this.reconcile().catch((error: unknown) => {
+        this.ctx.logger.warn(`bot: startup reconciliation failed: ${String(error)}`)
+      })
+      void this.pumpWhenReady().catch((error: unknown) => {
+        this.ctx.logger.warn(`bot: startup pump failed: ${String(error)}`)
+      })
+    })
   }
 
   /**
@@ -415,12 +437,14 @@ export class BotRegistry extends Service {
       : { botName: ticket.parentBotName, ticketId: ticket.parentTicket }
     try {
       const workerSession = await launchWorker(this.ctx, bot, ticket, this.memoriesOf(bot.id), origin)
-      return await this.ticketsTable.update(ticket.id, current => ({
+      const launched = await this.ticketsTable.update(ticket.id, current => ({
         ...current,
         stage: 'working',
         workerSession,
         updatedAt: now(),
       }))
+      this.armBudget(ticket.id)
+      return launched
     } catch (error: unknown) {
       this.ctx.logger.warn(`bot: worker launch for ticket '${ticket.id}' failed: ${String(error)}`)
       return await this.ticketsTable.update(ticket.id, current => ({
@@ -436,15 +460,27 @@ export class BotRegistry extends Service {
   private async pumpQueue(botId: BotId): Promise<void> {
     const bot = this.botsTable.get(botId)
     if (bot === undefined || bot.status !== 'active') return
-    let active = this.activeWorkers(botId)
-    const queued = [...this.ticketsTable.entries()]
-      .map(([, ticket]) => ticket)
-      .filter(ticket => String(ticket.botId) === String(botId) && ticket.stage === 'queued')
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-    for (const ticket of queued) {
-      if (active >= this.maxWorkersPerBot) break
-      await this.launchTicket(bot, ticket)
-      active += 1
+    if (this.pumping.has(botId)) {
+      this.pumpPending.add(botId)
+      return
+    }
+    this.pumping.add(botId)
+    try {
+      do {
+        this.pumpPending.delete(botId)
+        let active = this.activeWorkers(botId)
+        const queued = [...this.ticketsTable.entries()]
+          .map(([, ticket]) => ticket)
+          .filter(ticket => String(ticket.botId) === String(botId) && ticket.stage === 'queued')
+          .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+        for (const ticket of queued) {
+          if (active >= this.maxWorkersPerBot) break
+          const launched = await this.launchTicket(bot, ticket)
+          if (launched.stage === 'working') active += 1
+        }
+      } while (this.pumpPending.has(botId))
+    } finally {
+      this.pumping.delete(botId)
     }
   }
 
@@ -468,6 +504,9 @@ export class BotRegistry extends Service {
       summary,
       updatedAt: now(),
     }))
+    if (report.stage === 'ready' || report.stage === 'failed' || report.stage === 'blocked') {
+      this.clearBudget(ticketId)
+    }
     await this.notifyRouter(ticket, report.stage, summary)
     if (report.stage === 'ready' || report.stage === 'failed' || report.stage === 'blocked') {
       await this.pumpQueue(ticket.botId)
@@ -485,7 +524,9 @@ export class BotRegistry extends Service {
   async archive(botId: BotId): Promise<{ name: string; archivedTickets: number }> {
     const bot = this.botsTable.get(botId)
     if (bot === undefined) throw new Error(`unknown bot '${botId}'`)
-    const archivedTickets = await this.ticketsTable.deleteMany(this.ticketsOf(botId).map(ticket => ticket.id))
+    const tickets = this.ticketsOf(botId)
+    for (const ticket of tickets) this.clearBudget(ticket.id)
+    const archivedTickets = await this.ticketsTable.deleteMany(tickets.map(ticket => ticket.id))
     await this.memoriesTable.deleteMany(this.memoriesOf(botId).map(memory => memory.id))
     await this.approvalsTable.deleteMany(this.approvalsOf(botId).map(approval => approval.id))
     await this.noticesTable.deleteMany(this.noticesOf(botId).map(notice => notice.id))
@@ -596,16 +637,15 @@ export class BotRegistry extends Service {
       if (first === undefined) continue
       const router = this.ctx.agents.get(first.routerSession)
       const text = `Held updates (${list.length}):\n${list.map(notice => `- ${notice.summary}`).join('\n')}`
-      if (router !== undefined) {
-        try {
-          router.followup(createUserMessage({
-            content: [{ type: 'text', text }],
-            source: { kind: 'bot', botId: first.botId, form: 'notice', summary: `${list.length} held updates` },
-          }))
-        } catch (error: unknown) {
-          this.ctx.logger.warn(`bot: digest for '${String(first.routerSession)}' failed: ${String(error)}`)
-          continue
-        }
+      if (router === undefined) continue
+      try {
+        router.followup(createUserMessage({
+          content: [{ type: 'text', text }],
+          source: { kind: 'bot', botId: first.botId, form: 'notice', summary: `${list.length} held updates` },
+        }))
+      } catch (error: unknown) {
+        this.ctx.logger.warn(`bot: digest for '${String(first.routerSession)}' failed: ${String(error)}`)
+        continue
       }
       for (const notice of list) {
         await this.noticesTable.update(notice.id, record => ({ ...record, deliveredAt: now() }))
@@ -687,15 +727,20 @@ export class BotRegistry extends Service {
     }))
     const ticket = this.ticketsTable.get(current.ticketId)
     const worker = ticket?.workerSession === undefined ? undefined : this.ctx.agents.get(ticket.workerSession)
-    if (worker !== undefined) {
-      try {
-        worker.followup(createUserMessage({
-          content: [{ type: 'text', text: `Approval ${id} was ${decision}.${updated.note === undefined ? '' : ` Note: ${updated.note}`}` }],
-          source: { kind: 'bot', botId: current.botId, ticketId: current.ticketId, form: 'notice', summary: `Approval ${id} ${decision}` },
-        }))
-      } catch (error: unknown) {
-        this.ctx.logger.warn(`bot: approval notice for '${id}' failed: ${String(error)}`)
+    if (ticket === undefined || worker === undefined) return updated
+    if (ticket.stage !== 'waiting' && ticket.stage !== 'working') return updated
+    try {
+      worker.followup(createUserMessage({
+        content: [{ type: 'text', text: `Approval ${id} was ${decision}.${updated.note === undefined ? '' : ` Note: ${updated.note}`}` }],
+        source: { kind: 'bot', botId: current.botId, ticketId: current.ticketId, form: 'notice', summary: `Approval ${id} ${decision}` },
+      }))
+      if (ticket.stage === 'waiting') {
+        const resumed = await this.ticketsTable.update(current.ticketId, row =>
+          row.stage === 'waiting' ? { ...row, stage: 'working', updatedAt: now() } : row)
+        if (resumed.stage === 'working') this.armBudget(current.ticketId)
       }
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`bot: approval notice for '${id}' failed: ${String(error)}`)
     }
     return updated
   }
@@ -722,6 +767,104 @@ export class BotRegistry extends Service {
       .filter(([, ticket]) => String(ticket.botId) === String(botId))
       .map(([, ticket]) => ticket)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  }
+
+  /** Arm one ticket's worker budget. */
+  private armBudget(ticketId: TicketId): void {
+    this.clearBudget(ticketId)
+    if (this.workerTimeoutMinutes <= 0) return
+    const timer = setTimeout(() => {
+      void this.expireBudget(ticketId).catch((error: unknown) => {
+        this.ctx.logger.warn(`bot: worker budget for ticket '${ticketId}' failed: ${String(error)}`)
+      })
+    }, this.workerTimeoutMinutes * 60_000)
+    this.budgets.set(ticketId, timer)
+  }
+
+  /** Drop one ticket's armed budget. */
+  private clearBudget(ticketId: TicketId): void {
+    const timer = this.budgets.get(ticketId)
+    if (timer === undefined) return
+    clearTimeout(timer)
+    this.budgets.delete(ticketId)
+  }
+
+  /** Cancel one overdue worker, report it blocked, and start the next queued ticket. */
+  private async expireBudget(ticketId: TicketId): Promise<void> {
+    this.budgets.delete(ticketId)
+    const ticket = this.ticketsTable.get(ticketId)
+    if (ticket === undefined) return
+    const waited = ticket.stage === 'waiting'
+    if (ticket.stage !== 'working' && !waited) return
+    const summary = waited
+      ? `worker waited past the ${this.workerTimeoutMinutes}-minute budget without an answer`
+      : `worker exceeded the ${this.workerTimeoutMinutes}-minute budget`
+    const updated = await this.ticketsTable.update(ticketId, (current) => {
+      if (current.stage !== 'working' && current.stage !== 'waiting') return current
+      return { ...current, stage: 'blocked', summary, updatedAt: now() }
+    })
+    if (updated.stage !== 'blocked' || updated.summary !== summary) return
+    const committed = this.ticketsTable.get(ticketId)
+    if (committed === undefined || committed.stage !== 'blocked' || committed.summary !== summary) return
+    const agent = committed.workerSession === undefined ? undefined : this.ctx.agents.get(committed.workerSession)
+    if (agent !== undefined && agent.status === 'running') agent.cancel({ kind: 'user' })
+    await this.notifyRouter(committed, 'blocked', summary)
+    await this.pumpQueue(committed.botId)
+  }
+
+  /**
+   * Pump queued tickets once the preset registry is mounted, retrying briefly.
+   * A fresh boot composes rows in order, so launching before the registry
+   * exists would fail the launch and mark the ticket failed.
+   */
+  private async pumpWhenReady(): Promise<void> {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (this.ctx.get('agentPresets') !== undefined) {
+        for (const bot of this.list()) {
+          if (bot.status !== 'active') continue
+          try {
+            await this.pumpQueue(bot.id)
+          } catch (error: unknown) {
+            this.ctx.logger.warn(`bot: startup pump for bot '${bot.id}' failed: ${String(error)}`)
+          }
+        }
+        return
+      }
+      await new Promise(resolve => setTimeout(resolve, 1_000))
+    }
+  }
+
+  /**
+   * Mark workers that are no longer running as blocked, then fill free slots.
+   * Runs once at startup; a live worker is re-armed with a fresh budget.
+   */
+  async reconcile(): Promise<void> {
+    if (this.reconciling) return
+    this.reconciling = true
+    try {
+      for (const [id, ticket] of [...this.ticketsTable.entries()]) {
+        try {
+          if (ticket.stage !== 'working' && ticket.stage !== 'waiting') continue
+          const agent = ticket.workerSession === undefined ? undefined : this.ctx.agents.get(ticket.workerSession)
+          if (agent === undefined) {
+            const summary = 'worker is not running; the Host restarted or its Session ended'
+            const updated = await this.ticketsTable.update(id, (current) => {
+              if (current.stage !== 'working' && current.stage !== 'waiting') return current
+              return { ...current, stage: 'blocked', summary, updatedAt: now() }
+            })
+            if (updated.stage === 'blocked' && updated.summary === summary) {
+              await this.notifyRouter(updated, 'blocked', summary)
+            }
+            continue
+          }
+          this.armBudget(id)
+        } catch (error: unknown) {
+          this.ctx.logger.warn(`bot: startup reconciliation of ticket '${id}' failed: ${String(error)}`)
+        }
+      }
+    } finally {
+      this.reconciling = false
+    }
   }
 
   /** Send one ticket-stage notice to the router Session, ignoring an offline router. */
@@ -752,22 +895,22 @@ export class BotRegistry extends Service {
     if (isQuietAt(this.quietWindow, new Date())) return
     if (severity === 'digest' && this.holdResults) return
     const router = this.ctx.agents.get(record.routerSession)
-    if (router !== undefined) {
-      try {
-        router.followup(createUserMessage({
-          content: [{ type: 'text', text }],
-          source: {
-            kind: 'bot',
-            botId: record.botId,
-            ticketId: record.ticketId,
-            form: 'notice',
-            summary,
-            ...(stage === undefined ? {} : { stage }),
-          },
-        }))
-      } catch (error: unknown) {
-        this.ctx.logger.warn(`bot: router notice for ticket '${ticket.id}' failed: ${String(error)}`)
-      }
+    if (router === undefined) return
+    try {
+      router.followup(createUserMessage({
+        content: [{ type: 'text', text }],
+        source: {
+          kind: 'bot',
+          botId: record.botId,
+          ticketId: record.ticketId,
+          form: 'notice',
+          summary,
+          ...(stage === undefined ? {} : { stage }),
+        },
+      }))
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`bot: router notice for ticket '${ticket.id}' failed: ${String(error)}`)
+      return
     }
     await this.noticesTable.update(record.id, current => ({ ...current, deliveredAt: now() }))
   }
