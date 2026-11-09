@@ -69,6 +69,8 @@ export interface BotAttentionConfig {
   maxWorkersPerBot: number
   /** Deepest handoff chain a ticket may belong to. */
   maxHandoffDepth: number
+  /** Minutes one worker may run before it is cancelled; 0 disables the budget. */
+  workerTimeoutMinutes: number
 }
 
 /** A resolved quiet window, in local minutes since midnight. */
@@ -219,6 +221,8 @@ export class BotRegistry extends Service {
       .description('Worker Sessions one bot may run at once; extra tickets wait in queued.'),
     maxHandoffDepth: z.natural().max(10).default(3)
       .description('Deepest handoff chain a ticket may belong to.'),
+    workerTimeoutMinutes: z.natural().max(720).default(30)
+      .description('Minutes one worker may run before it is cancelled and its ticket reports blocked; 0 disables the budget.'),
   })
 
   private botsTable!: KvTable<BotId, BotRecord>
@@ -233,6 +237,8 @@ export class BotRegistry extends Service {
   private readonly holdResults: boolean
   private readonly maxWorkersPerBot: number
   private readonly maxHandoffDepth: number
+  private readonly workerTimeoutMinutes: number
+  private readonly budgets = new Map<string, ReturnType<typeof setTimeout>>()
 
   constructor(ctx: Context, config: Partial<BotAttentionConfig> = {}) {
     super(ctx, 'bots')
@@ -243,12 +249,17 @@ export class BotRegistry extends Service {
     this.holdResults = config.holdResults ?? false
     this.maxWorkersPerBot = config.maxWorkersPerBot ?? 2
     this.maxHandoffDepth = config.maxHandoffDepth ?? 3
+    this.workerTimeoutMinutes = config.workerTimeoutMinutes ?? 30
   }
 
   /** Open the domain and register the model tools. */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(botDomainSpec)
     this.ctx.effect(() => () => domain.close(), 'bot.domainClose')
+    this.ctx.effect(() => () => {
+      for (const timer of this.budgets.values()) clearTimeout(timer)
+      this.budgets.clear()
+    }, 'bot.budgets')
     this.botsTable = domain.table('bots')
     this.ticketsTable = domain.table('tickets')
     this.memoriesTable = domain.table('memories')
@@ -415,12 +426,14 @@ export class BotRegistry extends Service {
       : { botName: ticket.parentBotName, ticketId: ticket.parentTicket }
     try {
       const workerSession = await launchWorker(this.ctx, bot, ticket, this.memoriesOf(bot.id), origin)
-      return await this.ticketsTable.update(ticket.id, current => ({
+      const launched = await this.ticketsTable.update(ticket.id, current => ({
         ...current,
         stage: 'working',
         workerSession,
         updatedAt: now(),
       }))
+      this.armBudget(ticket.id)
+      return launched
     } catch (error: unknown) {
       this.ctx.logger.warn(`bot: worker launch for ticket '${ticket.id}' failed: ${String(error)}`)
       return await this.ticketsTable.update(ticket.id, current => ({
@@ -462,6 +475,7 @@ export class BotRegistry extends Service {
       throw new Error(`only the worker Session of ticket '${ticketId}' can report on it`)
     }
     const summary = requireText(report.summary, 'summary')
+    this.clearBudget(ticketId)
     const updated = await this.ticketsTable.update(ticketId, current => ({
       ...current,
       stage: report.stage,
@@ -722,6 +736,61 @@ export class BotRegistry extends Service {
       .filter(([, ticket]) => String(ticket.botId) === String(botId))
       .map(([, ticket]) => ticket)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  }
+
+  /** Arm one ticket's worker budget. */
+  private armBudget(ticketId: TicketId): void {
+    this.clearBudget(ticketId)
+    if (this.workerTimeoutMinutes <= 0) return
+    const timer = setTimeout(() => {
+      void this.expireBudget(ticketId).catch((error: unknown) => {
+        this.ctx.logger.warn(`bot: worker budget for ticket '${ticketId}' failed: ${String(error)}`)
+      })
+    }, this.workerTimeoutMinutes * 60_000)
+    if (typeof timer.unref === 'function') timer.unref()
+    this.budgets.set(ticketId, timer)
+  }
+
+  /** Drop one ticket's armed budget. */
+  private clearBudget(ticketId: TicketId): void {
+    const timer = this.budgets.get(ticketId)
+    if (timer === undefined) return
+    clearTimeout(timer)
+    this.budgets.delete(ticketId)
+  }
+
+  /** Cancel one overdue worker, report it blocked, and start the next queued ticket. */
+  private async expireBudget(ticketId: TicketId): Promise<void> {
+    this.budgets.delete(ticketId)
+    const ticket = this.ticketsTable.get(ticketId)
+    if (ticket === undefined || ticket.stage !== 'working') return
+    const summary = `worker exceeded the ${this.workerTimeoutMinutes}-minute budget`
+    const agent = ticket.workerSession === undefined ? undefined : this.ctx.get('agents')?.get(ticket.workerSession)
+    if (agent !== undefined && agent.status === 'running') agent.cancel({ kind: 'user' })
+    await this.ticketsTable.update(ticketId, current => ({ ...current, stage: 'blocked', summary, updatedAt: now() }))
+    await this.notifyRouter(ticket, 'blocked', summary)
+    await this.pumpQueue(ticket.botId)
+  }
+
+  /**
+   * Mark workers that are no longer running as blocked, then fill free slots.
+   * Call after a Host restart; a live worker keeps its remaining budget.
+   */
+  async reconcile(): Promise<void> {
+    for (const [id, ticket] of [...this.ticketsTable.entries()]) {
+      if (ticket.stage !== 'working' && ticket.stage !== 'waiting') continue
+      const agent = ticket.workerSession === undefined ? undefined : this.ctx.get('agents')?.get(ticket.workerSession)
+      if (agent === undefined) {
+        const summary = 'worker is not running; the Host restarted or its Session ended'
+        await this.ticketsTable.update(id, current => ({ ...current, stage: 'blocked', summary, updatedAt: now() }))
+        await this.notifyRouter(ticket, 'blocked', summary)
+        continue
+      }
+      if (ticket.stage === 'working') this.armBudget(id)
+    }
+    for (const bot of this.list()) {
+      if (bot.status === 'active') await this.pumpQueue(bot.id)
+    }
   }
 
   /** Send one ticket-stage notice to the router Session, ignoring an offline router. */

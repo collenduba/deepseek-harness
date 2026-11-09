@@ -23,6 +23,7 @@ async function harness(config: {
   holdResults?: boolean
   maxWorkersPerBot?: number
   maxHandoffDepth?: number
+  workerTimeoutMinutes?: number
 } = {}) {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
@@ -32,15 +33,43 @@ async function harness(config: {
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain' as string, facility)
   const followups: string[] = []
+  const pushNotice = (message: {
+    content: { type: string; text: string }[]
+    source?: { form?: string }
+  }): void => {
+    if (message.source?.form !== 'notice') return
+    followups.push(message.content[0]?.text ?? '')
+  }
   ctx.provide('tools' as string, { register: () => () => {} })
+  interface FakeAgent {
+    status: 'running' | 'inactive'
+    readonly session: { id: SessionId }
+    readonly cancel: ReturnType<typeof vi.fn>
+    readonly followup: (message: { content: { type: string; text: string }[] }) => void
+  }
+  const workers = new Map<string, FakeAgent>()
   ctx.provide('agents' as string, {
-    create: async () => ({
-      agent: { session: { id: WORKER }, followup: () => {} },
-      dispose: async () => {},
-    }),
-    get: () => ({ followup: (message: { content: { type: string; text: string }[] }) => {
-      followups.push(message.content[0]?.text ?? '')
-    } }),
+    create: async (options: { sessionId?: SessionId } = {}) => {
+      const id = options.sessionId ?? WORKER
+      const agent: FakeAgent = {
+        status: 'running',
+        session: { id },
+        cancel: vi.fn(() => { agent.status = 'inactive' }),
+        followup: pushNotice,
+      }
+      workers.set(id, agent)
+      return { agent, dispose: async () => {} }
+    },
+    get: (id: SessionId) => workers.get(id) ?? (id === ROUTER
+      ? {
+        status: 'inactive',
+        session: { id },
+        cancel: () => {},
+        followup: (message: { content: { type: string; text: string }[] }) => {
+          followups.push(message.content[0]?.text ?? '')
+        },
+      }
+      : undefined),
   })
   ctx.provide('agentDefaultModel' as string, { currentSelection: () => ({ provider: 'mock', model: 'mock' }) })
   ctx.provide('sessionTitle' as string, { rename: () => {} })
@@ -60,8 +89,9 @@ async function harness(config: {
     holdResults: config.holdResults ?? false,
     maxWorkersPerBot: config.maxWorkersPerBot ?? 2,
     maxHandoffDepth: config.maxHandoffDepth ?? 3,
+    workerTimeoutMinutes: config.workerTimeoutMinutes ?? 30,
   })
-  return { ctx, followups }
+  return { ctx, followups, workers }
 }
 
 describe('bot records', () => {
@@ -241,6 +271,40 @@ describe('tickets', () => {
     expect(firstHandoff.handoffDepth).toBe(1)
     await expect(ctx.bots.handoff(firstHandoff.id, 'third', 'Third', 'Go.'))
       .rejects.toThrow(/handoff depth 2 exceeds/)
+  })
+
+  it('cancels a worker that exceeds its budget and reports the ticket blocked', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, workers } = await harness({ workerTimeoutMinutes: 1 })
+      const bot = await ctx.bots.create({
+        name: 'reviewer', job: 'Review pull requests', workspace: '/tmp/work', routerSession: ROUTER,
+      })
+      const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(ticket.workerSession).toBeDefined()
+      expect(workers.get(ticket.workerSession!)?.cancel).toHaveBeenCalled()
+      const updated = ctx.bots.ticketsOf(bot.id).find(entry => entry.id === ticket.id)
+      expect(updated?.stage).toBe('blocked')
+      expect(updated?.summary).toContain('exceeded the 1-minute budget')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('blocks workers that are no longer running and starts the queue', async () => {
+    const { ctx, workers } = await harness({ maxWorkersPerBot: 1 })
+    const bot = await ctx.bots.create({
+      name: 'reviewer', job: 'Review pull requests', workspace: '/tmp/work', routerSession: ROUTER,
+    })
+    const first = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'First', instruction: 'One.' })
+    const second = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Second', instruction: 'Two.' })
+    workers.clear()
+    await ctx.bots.reconcile()
+    const tickets = ctx.bots.ticketsOf(bot.id)
+    expect(tickets.find(entry => entry.id === first.id)?.stage).toBe('blocked')
+    expect(tickets.find(entry => entry.id === first.id)?.summary).toContain('not running')
+    expect(tickets.find(entry => entry.id === second.id)?.stage).toBe('working')
   })
 
   it('refuses to open a ticket when no bot is bound to the Session', async () => {
