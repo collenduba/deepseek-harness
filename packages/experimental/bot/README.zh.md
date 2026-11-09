@@ -56,7 +56,7 @@ kind: "package-reference"
 
 工单从 `queued` 进入 `working`，再到 `waiting` 或 `ready`，也可能进入 `blocked` 和 `failed`。启动失败会保留工单并标记为 `failed`，附上错误信息，面板可以看到发生了什么，而不是丢掉请求。
 
-`bot_open_ticket` 通过 `ctx.agents.create` 创建一个普通根会话作为执行者：它以 Bot 的工作区为工作目录，挂载到该工作区，标题为 `<bot>: <ticket>`，并收到一条指令消息。执行者不是子智能体；它比创建者活得久，并出现在侧栏。当它调用 `bot_report` 时，服务校验调用者是工单的执行会话，写入阶段和摘要，并在路由会话在线时发送一条通知。执行者的指令还会带上 Bot 的笔记（最新在前），位于“Known context for this bot”之下。需要决定的执行者调用 `bot_request_approval`，服务保存确切载荷及其 SHA-256 摘要并通知对话；`bot_decide_approval` 把决定记录到该载荷上，并把结果发回执行会话。这是建议性门禁：执行者被要求等待，但工具管线并不阻止它先行动。执行者也可以调用 `bot_handoff`：在另一个活跃 Bot 上开工单，记录 `parentTicket` 与 `parentBotName`，并告知新执行者来源工单。
+`bot_open_ticket` 通过 `ctx.agents.create` 创建一个普通根会话作为执行者：它以 Bot 的工作区为工作目录，挂载到该工作区，标题为 `<bot>: <ticket>`，并收到一条指令消息。执行者不是子智能体；它比创建者活得久，并出现在侧栏。当它调用 `bot_report` 时，服务校验调用者是工单的执行会话，写入阶段和摘要，并在路由会话在线时发送一条通知。执行者的指令还会带上 Bot 的笔记（最新在前），位于“Known context for this bot”之下。需要决定的执行者调用 `bot_request_approval`，服务保存确切载荷及其 SHA-256 摘要并通知对话；`bot_decide_approval` 把决定记录到该载荷上，并把结果发回执行会话。默认这是建议性协议；开启 `enforceApprovals` 后，`tools/pre-execute` 会拒绝工单执行者中未被批准覆盖的受保护工具：只有针对该工单、载荷与确切 shell 命令相同的已批准请求才能放行，拒绝理由会提示先请求批准再重试。执行者也可以调用 `bot_handoff`：在另一个活跃 Bot 上开工单，记录 `parentTicket` 与 `parentBotName`，并告知新执行者来源工单。
 
 <a id="model-experience"></a>
 ## 模型体验
@@ -80,7 +80,7 @@ schema 在挂载期间保持静态。工单结果追加到其对话而不重写�
 <a id="known-limitations-and-deferred-work"></a>
 
 - 笔记是无上限的纯文本：指令会随笔记增长，目前没有遗忘策略。
-- 审批是建议性的，不是强制：无视协议的执行者可以不经批准就行动。强制属于后续阶段的工具门禁。
+- 门禁只覆盖受保护工具的 `command` 参数。其他有后果的工具仍靠协议约束，除非加入 `guardedTools` 并提供可比对的载荷；同一批准可重复用于相同命令。
 - 只有执行会话在线时决定才会送达；否则记录已决定，执行者在下一轮才会知道。
 - 安静时段使用 Host 本地时钟；没有按用户划分的时区，Host 停止时不投递任何内容。
 - 摘要是每个对话每个间隔一条消息；目前没有严重程度排序或按 Bot 的上限。

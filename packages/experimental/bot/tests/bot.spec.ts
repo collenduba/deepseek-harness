@@ -9,7 +9,7 @@ import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import BotRegistry, {
   approvalRecordSchema, botProjection, botRecordSchema, isQuietAt, memoryRecordSchema, parseQuietHours,
-  ticketRecordSchema, workerInstruction,
+  ticketRecordSchema, requireApproval, workerInstruction,
 } from '../src/index.ts'
 import type { BotApprovalId, BotId, BotMemoryId, BotProjectionState, TicketId } from '../src/index.ts'
 
@@ -46,7 +46,12 @@ async function harness(config: { quietHours?: string; digestMinutes?: number } =
       detachSession: async () => {},
     }),
   })
-  await ctx.plugin(BotRegistry, { quietHours: config.quietHours ?? '', digestMinutes: config.digestMinutes ?? 5 })
+  await ctx.plugin(BotRegistry, {
+    quietHours: config.quietHours ?? '',
+    digestMinutes: config.digestMinutes ?? 5,
+    enforceApprovals: false,
+    guardedTools: ['bash', 'pwsh'],
+  })
   return { ctx, followups }
 }
 
@@ -215,6 +220,20 @@ describe('approvals', () => {
     }
     expect(approvalRecordSchema.safeParse(record).success).toBe(true)
     expect(approvalRecordSchema.safeParse({ ...record, status: 'maybe' }).success).toBe(false)
+  })
+})
+
+describe('approval gate', () => {
+  it('requires approval only for guarded tools with an exact command', () => {
+    const approved = new Set(['pnpm test'])
+    expect(requireApproval(['bash'], approved, { name: 'bash', arguments: { command: 'pnpm test', description: 'x' } }))
+      .toEqual({ required: true, approved: true, command: 'pnpm test' })
+    expect(requireApproval(['bash'], approved, { name: 'bash', arguments: { command: 'rm -rf x' } }))
+      .toEqual({ required: true, approved: false, command: 'rm -rf x' })
+    expect(requireApproval(['bash'], approved, { name: 'read', arguments: { path: 'x' } }))
+      .toEqual({ required: false, approved: false })
+    expect(requireApproval(['bash'], approved, { name: 'bash', arguments: { workdir: '/tmp' } }))
+      .toEqual({ required: true, approved: false })
   })
 })
 
