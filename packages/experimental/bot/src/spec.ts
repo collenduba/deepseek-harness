@@ -90,19 +90,20 @@ export const noticeRecordSchema = z.object({
   routerSession: sessionId,
   text: z.string().min(1),
   summary: z.string().min(1),
+  severity: z.enum(['interrupt', 'digest']).default('interrupt'),
   createdAt: z.string().min(1),
   deliveredAt: z.string().min(1).optional(),
 })
 
 /**
  * The `bot` domain: bots, tickets, remembered notes, approval requests, and
- * notices, with no global state. Version 7 adds the optional hard-floor actions
- * on a bot; versions 1 through 6 load unchanged.
+ * notices, with no global state. Version 8 adds a notice severity; versions 1
+ * through 7 load unchanged and read as interrupts.
  */
 export const botDomainSpec = defineDomain({
   name: 'bot',
-  version: 7,
-  compatibleVersions: [1, 2, 3, 4, 5, 6],
+  version: 8,
+  compatibleVersions: [1, 2, 3, 4, 5, 6, 7],
   tables: {
     bots: domainTable<BotId, BotRecord>(botRecordSchema),
     tickets: domainTable<TicketId, TicketRecord>(ticketRecordSchema),

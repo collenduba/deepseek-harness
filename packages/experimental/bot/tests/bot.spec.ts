@@ -17,7 +17,7 @@ const ROUTER = brandString<SessionId>('router-1')
 const WORKER = brandString<SessionId>('worker-1')
 
 /** Boot a context with real storage, the bot registry, and fake peer services. */
-async function harness(config: { quietHours?: string; digestMinutes?: number } = {}) {
+async function harness(config: { quietHours?: string; digestMinutes?: number; holdResults?: boolean } = {}) {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await ctx.plugin(Storage)
@@ -51,6 +51,7 @@ async function harness(config: { quietHours?: string; digestMinutes?: number } =
     digestMinutes: config.digestMinutes ?? 5,
     enforceApprovals: false,
     guardedTools: ['bash', 'pwsh'],
+    holdResults: config.holdResults ?? false,
   })
   return { ctx, followups }
 }
@@ -286,6 +287,23 @@ describe('attention', () => {
     expect(isQuietAt(window, new Date(2026, 10, 8, 7, 0))).toBe(false)
     expect(isQuietAt(parseQuietHours('09:00-17:00'), new Date(2026, 10, 8, 12, 0))).toBe(true)
     expect(() => parseQuietHours('22-7')).toThrow(/HH:MM/)
+  })
+
+  it('holds result notices for the digest but never blocks a blocker', async () => {
+    const { ctx, followups } = await harness({ holdResults: true })
+    const bot = await ctx.bots.create({
+      name: 'reviewer', job: 'Review pull requests', workspace: '/tmp/work', routerSession: ROUTER,
+    })
+    const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+    await ctx.bots.report(ticket.workerSession!, ticket.id, { stage: 'ready', summary: 'Done.' })
+    expect(followups).toEqual([])
+    expect(ctx.bots.noticesOf(bot.id).filter(notice => notice.deliveredAt === undefined)).toHaveLength(1)
+
+    await ctx.bots.requestApproval(ticket.id, 'merge', '{}')
+    expect(followups.some(text => text.includes('requested for ticket'))).toBe(true)
+
+    await ctx.bots.flushNotices()
+    expect(followups.some(text => text.includes('Held updates (1)'))).toBe(true)
   })
 
   it('holds notices during quiet hours and delivers one digest afterwards', async () => {

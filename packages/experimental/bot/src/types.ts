@@ -146,6 +146,8 @@ export interface BotNoticeRecord {
   readonly summary: string
   /** ISO-8601 creation time. */
   readonly createdAt: string
+  /** How urgently the notice should interrupt: a blocker, or a result that can wait. */
+  readonly severity?: 'interrupt' | 'digest' | undefined
   /** ISO-8601 delivery time; absent while the notice is held. */
   readonly deliveredAt?: string | undefined
 }

@@ -44,7 +44,7 @@ kind: "package-reference"
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
-服务打开一个 `bot` 域，版本 7，包含五张表。版本 1 到版本 6 的存储原样加载。
+服务打开一个 `bot` 域，版本 8，包含五张表。版本 1 到版本 7 的存储原样加载。
 
 | 表 | 键 | 保存 |
 |---|---|---|

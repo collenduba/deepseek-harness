@@ -24,7 +24,7 @@ A bot is a durable record, not a Session. One `bot` storage domain holds five ta
 | `approvals` | action, exact payload, SHA-256 digest, status, decision note |
 | `notices` | router notices with their delivery time |
 
-The domain moved through versions 1–7 as tables and optional fields were added; every version loads the ones before it.
+The domain moved through versions 1–8 as tables and optional fields were added; every version loads the ones before it.
 
 ### Sessions
 
@@ -50,7 +50,7 @@ Approvals bind a decision to one payload and its digest. The protocol is advisor
 
 ### Attention and memory
 
-`notices` make router messages durable. Quiet hours hold them; a timer outside the window sends one digest per conversation and marks each notice delivered, so a restart never repeats one. Memory notes are prepended to each new worker instruction under "Known context for this bot".
+`notices` make router messages durable and carry a severity: blockers interrupt, results are digest-class. Quiet hours hold everything; with `holdResults` on, result notices also wait outside quiet hours until the digest timer sends one message per conversation and marks each notice delivered, so a restart never repeats one. Memory notes are prepended to each new worker instruction under "Known context for this bot".
 
 ### Sources
 
@@ -86,7 +86,7 @@ The `bot` Session projection folds the logged tool calls, results, and notices i
 ## Deferred
 
 - Approval tiers by reversibility and data sensitivity beyond the binary hard floor.
-- Attention severity, per-user quiet hours, and a digest schedule beyond one interval.
+- Per-user quiet hours and a digest schedule beyond one interval.
 - A roster page across bots, and a detail page per ticket.
 - A Loader-booted fixture; the composition test mounts the real service graph without the Loader.
 - Source polling continues only while the Host runs, and only issues are watched.
@@ -95,7 +95,7 @@ The `bot` Session projection folds the logged tool calls, results, and notices i
 
 - Bots are auditable: every ticket names its mandate's origin, its worker, and its outcome; every approval names the digest it decided.
 - Unattended work is bounded: quiet hours, an author allowlist, observe-before-auto, and a shell gate that refuses unapproved commands.
-- The storage domain carries seven format versions. Each addition is compatible, but the schema and its migration surface grow with every feature.
+- The storage domain carries eight format versions. Each addition is compatible, but the schema and its migration surface grow with every feature.
 - Approvals are only enforced for guarded shell tools; other consequential actions still depend on the worker following the protocol.
 - Tool allowlists deny at call time, so the model still sees denied tools in its catalog and learns the restriction from the denial.
 - Source behaviour is polling only and stops with the Host, so a bot is not a hosted service.
