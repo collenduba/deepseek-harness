@@ -54,7 +54,7 @@ Approvals bind a decision to one payload and its digest. The protocol is advisor
 
 ### Sources
 
-`@deepseek-ai/dsh-bot-source-github` polls one repository through `gh`. Every new issue records a candidate; `observe` only logs and `auto` opens a ticket. An author allowlist filters candidates, write-back comments each finished result once, and `bot_candidates` / `bot_accept_candidate` review and promote candidates. The poll loop takes its list and comment effects as arguments, so tests drive observe, auto, admission, and write-back against real storage without a `gh` process; `autostart: false` mounts the tools without polling.
+`@deepseek-ai/dsh-bot-source-github` polls one repository through `gh`. With `target: pull-requests` it watches each pull-request head revision instead of issues: one candidate per `number@head`, drafts skipped, and one review ticket per revision. Every new issue records a candidate; `observe` only logs and `auto` opens a ticket. An author allowlist filters candidates, write-back comments each finished result once, and `bot_candidates` / `bot_accept_candidate` review and promote candidates. The poll loop takes its list and comment effects as arguments, so tests drive observe, auto, admission, and write-back against real storage without a `gh` process; `autostart: false` mounts the tools without polling.
 
 ### Panel
 
@@ -67,7 +67,7 @@ The `bot` Session projection folds the logged tool calls, results, and notices i
 | `dsh-bot` | Records, tools, worker launch, approvals, attention, memory, handoffs |
 | `dsh-bot-source-github` | Issue polling, candidates, admission, write-back |
 | `dsh-client-ui-bot` | Composer strip over the projection |
-| `dsh-bot-bundle` | `bot-router` and `bot-worker` presets, panel row, disabled source row |
+| `dsh-bot-bundle` | `bot-router`, `bot-worker`, and `bot-reviewer` presets, panel row, disabled source row |
 
 ## Alternatives considered
 

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-bot-bundle",
-  "description": "Compose durable bots with router and worker agent presets",
+  "description": "Bots as durable agents: router, worker, and reviewer presets, panel row, and the GitHub source",
   "version": "0.2.2-rc.1",
   "publishConfig": {
     "access": "public"
@@ -29,16 +29,30 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@deepseek-ai/dsh-agent-instructions": "workspace:*",
     "@deepseek-ai/dsh-agent-preset": "workspace:*",
     "@deepseek-ai/dsh-bot": "workspace:*",
     "@deepseek-ai/dsh-bot-source-github": "workspace:*",
-    "@deepseek-ai/dsh-client-ui-bot": "workspace:*"
+    "@deepseek-ai/dsh-client-ui-bot": "workspace:*",
+    "@deepseek-ai/dsh-persona": "workspace:*",
+    "@deepseek-ai/dsh-skill-filesystem": "workspace:*",
+    "@deepseek-ai/dsh-time-context": "workspace:*",
+    "@deepseek-ai/dsh-tool-bash": "workspace:*",
+    "@deepseek-ai/dsh-tool-fs": "workspace:*",
+    "@deepseek-ai/dsh-tool-fs-search": "workspace:*",
+    "@deepseek-ai/dsh-tool-jobs": "workspace:*",
+    "@deepseek-ai/dsh-tool-pwsh": "workspace:*",
+    "@deepseek-ai/dsh-tool-skill": "workspace:*",
+    "@deepseek-ai/dsh-tool-todo": "workspace:*",
+    "@deepseek-ai/dsh-tool-working-directory": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:~"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/cordis-plugin-include": "workspace:~",
+    "js-yaml": "^4.3.2"
   },
   "dsh": {
     "bundle": {

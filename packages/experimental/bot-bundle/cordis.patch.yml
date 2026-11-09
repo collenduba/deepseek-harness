@@ -1,7 +1,8 @@
-# Bot composition: the durable bot service plus two agent presets.
+# Bot composition: the durable bot service plus three agent presets.
 #
 # `bot-router` is the conversation that owns bots; `bot-worker` is the
-# unattended Session a ticket runs in. The worker preset deliberately omits
+# unattended Session a ticket runs in; `bot-reviewer` is the unattended
+# Session a pull-request review runs in. The worker preset deliberately omits
 # every tool that asks a person, presents UI, changes the profile, or schedules
 # work, so a worker cannot block on input it will never receive.
 - insert:
@@ -59,6 +60,8 @@
             name: '@deepseek-ai/dsh-tool-jobs'
           - id: tool-todo
             name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
           - id: skill-filesystem
             name: '@deepseek-ai/dsh-skill-filesystem'
           - id: tool-skill
@@ -70,3 +73,45 @@
     - id: bot-source-github
       name: '@deepseek-ai/dsh-bot-source-github'
       disabled: true
+
+    - id: preset-bot-reviewer
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: bot-reviewer
+        name: Bot reviewer
+        description: Reviews a pull request revision with a read-only file tool, search, shell, working directory, and todo.
+        order: 22
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: You are a code reviewer. A pull request revision is your whole task. Find defects that matter, judge the change against the repository's own conventions, and say what you checked. Prefer a few well-evidenced findings over a long list. Never push, merge, or edit the pull request.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              write: false
+              edit: false
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-working-directory
+            name: '@deepseek-ai/dsh-tool-working-directory'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true

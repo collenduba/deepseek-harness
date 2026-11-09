@@ -1,5 +1,5 @@
 ---
-description: "Compose durable bots with router and worker agent presets"
+description: "Compose durable bots with router, worker, and reviewer agent presets"
 kind: "package-bundle"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Composes `@deepseek-ai/dsh-bot` with two agent presets, the bot status strip, and the GitHub issue source (disabled until configured). `bot-router` is the conversation that owns bots; `bot-worker` is the unattended composition a ticket runs in; `@deepseek-ai/dsh-client-ui-bot` shows the bound bot and its ticket counts above the composer.
+Composes `@deepseek-ai/dsh-bot` with three agent presets, the bot status strip, and the GitHub source (disabled until configured). `bot-router` is the conversation that owns bots; `bot-worker` is the unattended composition a ticket runs in; `bot-reviewer` is the unattended composition a pull-request review runs in; `@deepseek-ai/dsh-client-ui-bot` shows the bound bot and its ticket counts above the composer.
 
 ## Table of Contents
 
@@ -27,7 +27,7 @@ Install the bundle into a profile through the Plugins page or the CLI:
 dsh plugin --profile web add @deepseek-ai/dsh-bot-bundle
 ```
 
-Start a conversation with the **Bot router** preset, call `bot_create`, then pass `preset: "bot-worker"` to `bot_open_ticket`'s bot, so each ticket's Session mounts the worker composition. Tokens, storage, and worker behavior belong to `dsh-bot`.
+Start a conversation with the **Bot router** preset, call `bot_create`, then pass `preset: "bot-worker"` to `bot_open_ticket`'s bot, so each ticket's Session mounts the worker composition. Tokens, storage, and worker behavior belong to `dsh-bot`. For pull-request review, create the bot with `preset: "bot-reviewer"` instead: its file tool is read-only, and it also mounts search, shell, working directory, and todo, so a review can inspect a worktree and run checks. Shell can still write, so bind the bot's tool allowlist and the deployment's sandbox policy to the review job.
 
 <a id="presets"></a>
 ## Presets
@@ -36,6 +36,7 @@ Start a conversation with the **Bot router** preset, call `bot_create`, then pas
 |---|---|---|
 | `bot-router` | The conversation that owns bots and receives their reports. | Persona and time context; every globally registered tool remains visible. |
 | `bot-worker` | The unattended Session one ticket runs in. | File read/write, search, shell, background jobs, todo, and skills. No tool that asks a person, presents UI, changes the profile, schedules work, or reaches the web. |
+| `bot-reviewer` | The unattended Session a pull-request review runs in. | Read-only file tool, search, shell, working directory, and todo. The file tool cannot write, but shell can: write prevention belongs to the bot's tool allowlist and the deployment's sandbox policy. |
 
 The worker preset is deliberately narrow: a worker that holds `ask_user_question` or `present` can block a turn on input that will never arrive.
 
@@ -46,7 +47,7 @@ Indirectly, through the [bot package](../bot/README.md), which owns the tool sch
 
 #### KV Cache effect
 
-The bundle adds no request content of its own. Selecting `bot-worker` for a Session establishes a different tool list, which invalidates that Session's cached request prefix once at its first request; the tool list stays fixed afterwards.
+The bundle adds no request content of its own. Selecting `bot-worker` or `bot-reviewer` for a Session establishes a different tool list, which invalidates that Session's cached request prefix once at its first request; the tool list stays fixed afterwards.
 
 ## Known Limitations and Deferred Work
 
@@ -55,8 +56,8 @@ The bundle adds no request content of its own. Selecting `bot-worker` for a Sess
 - Presets are selectable, not enforced: `bot_create` binds whichever Session it runs in, so the router preset is a convention rather than a gate.
 - There is no no-wait guard yet; a router can still run a blocking shell command.
 - The worker preset omits web, subagent, schedule, and presentation tools by design; add them in a derived preset when a deployment needs them.
-- The status strip is a summary only; it does not list tickets or open a worker Session.
-- The GitHub source is inserted disabled: it needs a `bot` and `repository` before it can run.
+- The reviewer preset omits the skill tools, so it cannot load repository review skills, and its shell is not read-only: write prevention belongs to the bot's tool allowlist and the deployment's sandbox policy.
+- The GitHub source is inserted disabled: it needs a `bot` and `repository` before it can run, and its `target` selects issues or pull-request revisions.
 
 <a id="dev-note"></a>
 ### Dev Note

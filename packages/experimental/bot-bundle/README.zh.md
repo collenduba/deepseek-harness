@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-把 `@deepseek-ai/dsh-bot`、两个 agent preset、Bot 状态条与 GitHub issue 来源（配置前保持禁用）组合在一起。`bot-router` 是持有 Bot 的对话；`bot-worker` 是工单运行时的无人值守组合；`@deepseek-ai/dsh-client-ui-bot` 在输入框上方显示绑定的 Bot 与工单数量。
+把 `@deepseek-ai/dsh-bot`、三个 agent preset、Bot 状态条与 GitHub 来源（配置前保持禁用）组合在一起。`bot-router` 是持有 Bot 的对话；`bot-worker` 是工单运行时的无人值守组合；`bot-reviewer` 是拉取请求审阅运行的无人值守组合；`@deepseek-ai/dsh-client-ui-bot` 在输入框上方显示绑定的 Bot 与工单数量。
 
 ## 目录
 
@@ -27,7 +27,7 @@ kind: "package-bundle"
 dsh plugin --profile web add @deepseek-ai/dsh-bot-bundle
 ```
 
-用 **Bot router** preset 开启对话，调用 `bot_create`，再让 `bot_open_ticket` 所属的 Bot 使用 `preset: "bot-worker"`，这样每个工单的会话都会挂载执行组合。token、存储与执行行为属于 `dsh-bot`。
+用 **Bot router** preset 开启对话，调用 `bot_create`，再让 `bot_open_ticket` 所属的 Bot 使用 `preset: "bot-worker"`，这样每个工单的会话都会挂载执行组合。token、存储与执行行为属于 `dsh-bot`。审阅拉取请求时改用 `preset: "bot-reviewer"` 创建 Bot：它的文件工具是只读的，同时挂载搜索、shell、工作目录与待办，审阅因此可以检查 worktree 并运行检查。shell 仍可写入，所以要把 Bot 的工具白名单与部署的沙箱策略绑定到审阅任务上。
 
 <a id="presets"></a>
 ## Preset
@@ -36,6 +36,7 @@ dsh plugin --profile web add @deepseek-ai/dsh-bot-bundle
 |---|---|---|
 | `bot-router` | 持有 Bot 并接收其报告的对话。 | 人格与时间上下文；全局注册的工具仍然可见。 |
 | `bot-worker` | 单个工单运行的无人值守会话。 | 文件读写、搜索、shell、后台作业、待办与技能。没有询问人、展示界面、修改配置、调度工作或访问 Web 的工具。 |
+| `bot-reviewer` | 拉取请求审阅运行的无人值守会话。 | 只读文件工具、搜索、shell、工作目录与待办。文件工具不能写入，但 shell 可以：写入防护属于 Bot 的工具白名单与部署的沙箱策略。 |
 
 执行 preset 刻意收窄：持有 `ask_user_question` 或 `present` 的执行者会把轮次阻塞在永远不会到来的输入上。
 
@@ -55,8 +56,8 @@ bundle 自身不增加请求内容。为会话选择 `bot-worker` 会建立不�
 - preset 可选但不强制：`bot_create` 绑定它运行所在的会话，因此路由 preset 是约定而不是门禁。
 - 还没有禁止等待的守卫；路由仍可能运行阻塞的 shell 命令。
 - 执行 preset 按设计省略 Web、子智能体、调度和展示工具；部署需要时在派生 preset 中加回。
-- 状态条只做汇总；它不列出工单，也不打开执行会话。
-- GitHub 来源以禁用状态插入：需要先配置 `bot` 与 `repository` 才能运行。
+- 审阅 preset 省略了技能工具，因此无法加载仓库的审阅技能；它的 shell 也不是只读的：写入防护属于 Bot 的工具白名单与部署的沙箱策略。
+- GitHub 来源以禁用状态插入：需要先配置 `bot` 与 `repository` 才能运行，`target` 决定观察 issue 还是拉取请求修订。
 
 <a id="dev-note"></a>
 ### 开发备注
