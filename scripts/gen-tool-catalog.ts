@@ -304,6 +304,8 @@ const TOOL_PACKAGES: ToolPackage[] = [
         writeBack: false,
         allowedAuthors: [],
         autostart: false,
+        target: 'issues',
+        includeDrafts: false,
         maxSeen: 200,
       })
     },
