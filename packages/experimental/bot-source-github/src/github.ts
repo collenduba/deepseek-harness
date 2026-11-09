@@ -5,6 +5,8 @@
  */
 
 import { brandString } from '@deepseek-ai/dsh-brand'
+import { mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import { execa } from 'execa'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import { z } from 'zod'
@@ -180,20 +182,30 @@ export function freshPullRequests(
  * The review instruction one PR ticket's worker receives.
  * @param repository - `owner/name` of the repository.
  * @param pullRequest - the pull request and head revision to review.
+ * @param workspace - an isolated checkout the runtime already created.
  * @returns the instruction text.
  */
-export function pullRequestInstruction(repository: string, pullRequest: GithubPullRequest): string {
+export function pullRequestInstruction(
+  repository: string,
+  pullRequest: GithubPullRequest,
+  workspace?: string,
+): string {
   const short = pullRequest.headRefOid.slice(0, 8)
   const worktree = `../review-${pullRequest.number}-${short}`
+  const setup = workspace === undefined
+    ? [
+      'Build an isolated checkout of this revision:',
+      `  git fetch origin pull/${pullRequest.number}/head:refs/review/${pullRequest.number}-${short}`,
+      `  git worktree add ${worktree} refs/review/${pullRequest.number}-${short}`,
+      `Then change your working directory to ${worktree} before reading files.`,
+    ]
+    : [`You are in an isolated checkout of this revision at ${workspace}.`]
   return [
     `Review pull request #${pullRequest.number} in ${repository}: ${pullRequest.title}`,
     pullRequest.url,
     `Head ${pullRequest.headRefOid} on base ${pullRequest.baseRefName}.`,
     '',
-    'Build an isolated checkout of this revision:',
-    `  git fetch origin pull/${pullRequest.number}/head:refs/review/${pullRequest.number}-${short}`,
-    `  git worktree add ${worktree} refs/review/${pullRequest.number}-${short}`,
-    `Then change your working directory to ${worktree} before reading files.`,
+    ...setup,
     '',
     `Review what this revision changes: \`git diff ${pullRequest.baseRefName}...${pullRequest.headRefOid}\` and the files it touches.`,
     'Read the repository\'s AGENTS.md or CLAUDE.md when present and judge against those conventions.',
@@ -236,6 +248,56 @@ const GH_ENV = {
   GH_NO_UPDATE_NOTIFIER: '1',
   GH_PAGER: '',
   NO_COLOR: '1',
+}
+
+/** Run one git command in the repository clone. */
+async function git(
+  options: PollOptions,
+  repoPath: string,
+  args: readonly string[],
+): Promise<void> {
+  const result = await execa('git', ['-C', repoPath, ...args], {
+    env: { ...scrubbedParentEnv(), GIT_TERMINAL_PROMPT: '0' },
+    extendEnv: false,
+    stdin: 'ignore',
+    reject: false,
+    timeout: options.timeoutMs,
+    maxBuffer: 8 * 1024 * 1024,
+  })
+  if (result.timedOut) throw new Error(`git ${args[0] ?? ''} timed out after ${options.timeoutMs}ms`)
+  if (result.exitCode !== 0) throw new Error(`git ${args[0] ?? ''} failed: ${result.stderr}`)
+}
+
+/**
+ * Fetch one pull-request revision into a detached worktree.
+ * @param options - repository, executable, and deadline.
+ * @param input - repository clone, worktree parent, and revision.
+ * @returns the worktree path.
+ */
+export async function prepareReviewWorktree(
+  options: PollOptions,
+  input: { readonly repoPath: string; readonly root: string; readonly pullRequest: GithubPullRequest },
+): Promise<string> {
+  const short = input.pullRequest.headRefOid.slice(0, 8)
+  const path = join(input.root, `review-${input.pullRequest.number}-${short}`)
+  const ref = `refs/dsh-review/${input.pullRequest.number}-${short}`
+  await mkdir(input.root, { recursive: true })
+  await git(options, input.repoPath, ['fetch', 'origin', `pull/${input.pullRequest.number}/head:${ref}`])
+  await git(options, input.repoPath, ['worktree', 'add', '--detach', path, ref])
+  return path
+}
+
+/**
+ * Remove one review worktree and prune its registration.
+ * @param options - repository and deadline.
+ * @param input - repository clone and worktree path.
+ */
+export async function removeReviewWorktree(
+  options: PollOptions,
+  input: { readonly repoPath: string; readonly path: string },
+): Promise<void> {
+  await git(options, input.repoPath, ['worktree', 'remove', '--force', input.path])
+  await git(options, input.repoPath, ['worktree', 'prune'])
 }
 
 /**

@@ -54,7 +54,7 @@ Approvals bind a decision to one payload and its digest. The protocol is advisor
 
 ### Sources
 
-`@deepseek-ai/dsh-bot-source-github` polls one repository through `gh`. With `target: pull-requests` it watches each pull-request head revision instead of issues: one candidate per `number@head`, drafts skipped, and one review ticket per revision. Every new issue records a candidate; `observe` only logs and `auto` opens a ticket. An author allowlist filters candidates, write-back comments each finished result once, and `bot_candidates` / `bot_accept_candidate` review and promote candidates. The poll loop takes its list and comment effects as arguments, so tests drive observe, auto, admission, and write-back against real storage without a `gh` process; `autostart: false` mounts the tools without polling.
+`@deepseek-ai/dsh-bot-source-github` polls one repository through `gh`. With `target: pull-requests` it watches each pull-request head revision instead of issues: one candidate per `number@head`, drafts skipped, and one review ticket per revision. With `worktrees` on it fetches the revision into its own worktree, passes it as the ticket workspace, and removes it once the review ticket ends. Every new issue records a candidate; `observe` only logs and `auto` opens a ticket. An author allowlist filters candidates, write-back comments each finished result once, and `bot_candidates` / `bot_accept_candidate` review and promote candidates. The poll loop takes its list and comment effects as arguments, so tests drive observe, auto, admission, and write-back against real storage without a `gh` process; `autostart: false` mounts the tools without polling.
 
 ### Panel
 

@@ -5,15 +5,17 @@
  * @module @deepseek-ai/dsh-bot-source-github
  */
 
+import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the `ctx.bots` Service declaration from the bot package.
-import type {} from '@deepseek-ai/dsh-bot'
+import type { BotId, TicketStage } from '@deepseek-ai/dsh-bot'
 import z from '@deepseek-ai/schemastery'
 import {
   admitted, candidateOf, commentIssue, freshIssues, freshPullRequests, listIssues, listPullRequests,
-  pullRequestCandidateOf, pullRequestInstruction, reportComment, ticketInstruction,
+  prepareReviewWorktree, pullRequestCandidateOf, pullRequestInstruction, removeReviewWorktree, reportComment,
+  ticketInstruction,
 } from './github.ts'
 import type { GithubIssue, GithubPullRequest } from './github.ts'
 import type { PollOptions } from './github.ts'
@@ -46,6 +48,10 @@ export interface Config {
   allowedAuthors: string[]
   /** Start the poll loop on mount; disable to drive `runSource` yourself. */
   autostart: boolean
+  /** Create an isolated git worktree per pull-request revision. */
+  worktrees: boolean
+  /** Parent directory for review worktrees; empty uses a sibling `.dsh-worktrees` of the bot workspace. */
+  worktreeRoot: string
   /** What to watch: open issues, or open pull-request revisions. */
   target: 'issues' | 'pull-requests'
   /** Review draft pull requests too. */
@@ -71,6 +77,10 @@ export const Config: z<Config> = z.object({
     .description('Logins allowed to open work through this source; empty admits everyone.'),
   autostart: z.boolean().default(true)
     .description('Start the poll loop on mount; disable to drive runSource yourself.'),
+  worktrees: z.boolean().default(false)
+    .description('Create an isolated git worktree per pull-request revision and pass it to the ticket.'),
+  worktreeRoot: z.string().default('')
+    .description('Parent directory for review worktrees; empty uses a sibling .dsh-worktrees of the bot workspace.'),
   target: z.union([z.const('issues'), z.const('pull-requests')]).default('issues')
     .description('Watch open issues or open pull-request revisions.'),
   includeDrafts: z.boolean().default(false)
@@ -216,6 +226,19 @@ export interface SourceDeps {
   list(signal: AbortSignal): Promise<GithubIssue[]>
   /** List the open pull requests the query selects; required for the pull-request target. */
   listPullRequests?(signal: AbortSignal): Promise<GithubPullRequest[]>
+  /** Fetch one revision into an isolated worktree and return its path. */
+  prepareWorktree?(input: {
+    readonly repository: string
+    readonly repoPath: string
+    readonly root: string
+    readonly pullRequest: GithubPullRequest
+  }): Promise<string>
+  /** Remove one review worktree. */
+  removeWorktree?(input: {
+    readonly repository: string
+    readonly repoPath: string
+    readonly path: string
+  }): Promise<void>
   /** Comment one result on an issue. */
   comment(issueNumber: number, body: string, signal: AbortSignal): Promise<void>
   /** Current time, fixed by a test. */
@@ -228,6 +251,8 @@ function realDeps(config: Config): SourceDeps {
   return {
     list: signal => listIssues(options, signal),
     listPullRequests: signal => listPullRequests(options, config.includeDrafts, signal),
+    prepareWorktree: input => prepareReviewWorktree(options, input),
+    removeWorktree: input => removeReviewWorktree(options, input),
     comment: (issueNumber, body, signal) => commentIssue(options, issueNumber, body, signal),
     now: () => new Date(),
   }
@@ -284,11 +309,16 @@ export async function runSource(
         const pullRequests = await pullLister(signal)
         const current = cursors.get(key) ?? { seen: [] }
         const fresh = freshPullRequests(current.seen, pullRequests)
+        const bot = config.mode === 'auto'
+          ? ctx.bots.list().find(candidate => candidate.name === config.bot)
+          : undefined
+        if (config.mode === 'auto' && bot === undefined) throw new Error(`no bot named '${config.bot}'`)
+        const prepare = config.worktrees ? deps.prepareWorktree?.bind(deps) : undefined
+        const remove = config.worktrees ? deps.removeWorktree?.bind(deps) : undefined
+        if (config.worktrees && (prepare === undefined || remove === undefined)) {
+          throw new Error('worktrees are enabled but the source has no worktree effects')
+        }
         if (fresh.length > 0) {
-          const bot = config.mode === 'auto'
-            ? ctx.bots.list().find(candidate => candidate.name === config.bot)
-            : undefined
-          if (config.mode === 'auto' && bot === undefined) throw new Error(`no bot named '${config.bot}'`)
           for (const pullRequest of fresh) {
             const candidate = pullRequestCandidateOf(config.repository, pullRequest, deps.now().toISOString())
             if (!admitted(pullRequest.author.login, config.allowedAuthors)) {
@@ -301,15 +331,31 @@ export async function runSource(
               ctx.logger.info(`bot-source-github: observe only, would review PR #${pullRequest.number} at ${pullRequest.headRefOid}`)
               continue
             }
+            let workspace: string | undefined
+            if (prepare !== undefined) {
+              const root = config.worktreeRoot !== ''
+                ? config.worktreeRoot
+                : join(bot.workspace, '..', '.dsh-worktrees')
+              workspace = await prepare({ repository: config.repository, repoPath: bot.workspace, root, pullRequest })
+            }
             const ticket = await ctx.bots.openTicket({
               routerSession: bot.routerSession,
               title: `Review #${pullRequest.number} ${pullRequest.title}`,
-              instruction: pullRequestInstruction(config.repository, pullRequest),
+              instruction: pullRequestInstruction(config.repository, pullRequest, workspace),
+              ...(workspace === undefined ? {} : { workspace }),
             })
-            await candidates.put(candidate.id, { ...candidate, state: 'opened', ticketId: ticket.id })
+            await candidates.put(candidate.id, {
+              ...candidate,
+              state: 'opened',
+              ticketId: ticket.id,
+              ...(workspace === undefined ? {} : { worktree: workspace }),
+            })
           }
           const handled = fresh.map(pullRequest => `${pullRequest.number}@${pullRequest.headRefOid}`).reverse()
           await cursors.put(key, { seen: [...handled, ...current.seen].slice(0, config.maxSeen) })
+        }
+        if (bot !== undefined && remove !== undefined) {
+          await cleanWorktrees(ctx, config, deps, candidates, bot, remove)
         }
       }
       if (pullLister === undefined) {
@@ -350,6 +396,29 @@ export async function runSource(
       ctx.logger.warn(`bot-source-github: poll failed: ${error instanceof Error ? error.message : String(error)}`)
     }
     await delay(config.pollSeconds * 1000, undefined, { signal }).catch(() => {})
+  }
+}
+
+/** Remove worktrees whose review ticket reached a terminal stage. */
+async function cleanWorktrees(
+  ctx: Context,
+  config: Config,
+  deps: SourceDeps,
+  candidates: SourceState['candidates'],
+  bot: { readonly id: BotId; readonly workspace: string },
+  remove: NonNullable<SourceDeps['removeWorktree']>,
+): Promise<void> {
+  const stages = new Map<string, TicketStage>(ctx.bots.ticketsOf(bot.id).map(ticket => [String(ticket.id), ticket.stage]))
+  for (const [, candidate] of [...candidates.entries()]) {
+    if (candidate.worktree === undefined || candidate.cleanedAt !== undefined || candidate.ticketId === undefined) continue
+    const stage = stages.get(candidate.ticketId)
+    if (stage !== 'ready' && stage !== 'failed' && stage !== 'blocked') continue
+    try {
+      await remove({ repository: config.repository, repoPath: bot.workspace, path: candidate.worktree })
+      await candidates.put(candidate.id, { ...candidate, cleanedAt: deps.now().toISOString() })
+    } catch (error: unknown) {
+      ctx.logger.warn(`bot-source-github: worktree cleanup for PR #${candidate.number} failed: ${String(error)}`)
+    }
   }
 }
 

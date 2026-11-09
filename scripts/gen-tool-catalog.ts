@@ -306,6 +306,8 @@ const TOOL_PACKAGES: ToolPackage[] = [
         autostart: false,
         target: 'issues',
         includeDrafts: false,
+        worktrees: false,
+        worktreeRoot: '',
         maxSeen: 200,
       })
     },

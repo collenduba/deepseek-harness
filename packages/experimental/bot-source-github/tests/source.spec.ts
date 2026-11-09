@@ -3,6 +3,7 @@
  * write-back, without a `gh` process.
  */
 
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -41,6 +42,8 @@ const config = (over: Partial<Config> = {}): Config => ({
   autostart: true,
   target: 'issues',
   includeDrafts: false,
+  worktrees: false,
+  worktreeRoot: '',
   maxSeen: 200,
   ...over,
 })
@@ -129,7 +132,10 @@ async function bench(options: {
 }
 
 /** Boot real storage plus fake bots, and drive the pull-request loop. */
-async function benchPullRequests(script: GithubPullRequest[][]) {
+async function benchPullRequests(
+  script: GithubPullRequest[][],
+  options: { worktrees?: boolean; stages?: Record<string, string> } = {},
+) {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await ctx.plugin(Storage)
@@ -138,17 +144,25 @@ async function benchPullRequests(script: GithubPullRequest[][]) {
   ctx.provide('storageDomain' as string, facility)
 
   const opened: string[] = []
+  const tickets: { title: string; instruction: string; workspace?: string }[] = []
+  const prepared: string[] = []
+  const removed: string[] = []
   const bot = {
     id: 'bot-1', name: 'reviewer', job: 'Review', workspace: '/tmp/w', routerSession: ROUTER,
     status: 'active', createdAt: '2026-11-09T00:00:00Z', updatedAt: '2026-11-09T00:00:00Z',
   }
   ctx.provide('bots' as string, {
     list: () => [bot],
-    openTicket: (input: { title: string; instruction: string }) => {
+    openTicket: (input: { title: string; instruction: string; workspace?: string }) => {
       opened.push(input.title)
+      tickets.push({
+        title: input.title,
+        instruction: input.instruction,
+        ...(input.workspace === undefined ? {} : { workspace: input.workspace }),
+      })
       return Promise.resolve({ id: `ticket-${opened.length}`, title: input.title, instruction: input.instruction, stage: 'working' })
     },
-    ticketsOf: () => [],
+    ticketsOf: () => Object.entries(options.stages ?? {}).map(([id, stage]) => ({ id, stage })),
   })
 
   const controller = new AbortController()
@@ -162,6 +176,15 @@ async function benchPullRequests(script: GithubPullRequest[][]) {
       return Promise.resolve(items)
     },
     comment: () => Promise.resolve(),
+    prepareWorktree: (input: { root: string; pullRequest: GithubPullRequest }) => {
+      const path = join(input.root, `review-${input.pullRequest.number}-${input.pullRequest.headRefOid.slice(0, 8)}`)
+      prepared.push(path)
+      return Promise.resolve(path)
+    },
+    removeWorktree: (input: { path: string }) => {
+      removed.push(input.path)
+      return Promise.resolve()
+    },
     now: () => new Date('2026-11-09T01:00:00Z'),
   }
 
@@ -170,12 +193,18 @@ async function benchPullRequests(script: GithubPullRequest[][]) {
   const state = { cursors: domain.table('cursors'), candidates: domain.table('candidates') }
   await runSource(
     ctx,
-    config({ target: 'pull-requests', mode: 'auto', pollSeconds: 0 }),
+    config({
+      target: 'pull-requests', mode: 'auto', pollSeconds: 0,
+      worktrees: options.worktrees ?? false, worktreeRoot: '/tmp/worktrees',
+    }),
     controller.signal,
     deps,
     state,
   )
-  return { opened, candidates: [...state.candidates.entries()].map(([, candidate]) => candidate) }
+  return {
+    opened, tickets, prepared, removed,
+    candidates: [...state.candidates.entries()].map(([, candidate]) => candidate),
+  }
 }
 
 const pullRequest = (number: number, sha: string): GithubPullRequest => ({
@@ -240,6 +269,20 @@ describe('github source loop', () => {
     expect(opened).toEqual(['Review #1 PR 1', 'Review #1 PR 1'])
     expect(candidates.map(candidate => candidate.headSha)).toEqual(['sha-1', 'sha-2'])
     expect(candidates.every(candidate => candidate.kind === 'pull-request')).toBe(true)
+  })
+
+  it('reviews a revision in its own worktree and removes it when the ticket ends', async () => {
+    const { tickets, prepared, removed, candidates } = await benchPullRequests(
+      [[], [pullRequest(2, 'sha-a')], []],
+      { worktrees: true, stages: { 'ticket-1': 'ready' } },
+    )
+    expect(prepared).toEqual(['/tmp/worktrees/review-2-sha-a'])
+    expect(tickets[0]?.workspace).toBe('/tmp/worktrees/review-2-sha-a')
+    expect(tickets[0]?.instruction).toContain('isolated checkout')
+    expect(tickets[0]?.instruction).not.toContain('git worktree add')
+    expect(removed).toEqual(['/tmp/worktrees/review-2-sha-a'])
+    expect(candidates[0]?.worktree).toBe('/tmp/worktrees/review-2-sha-a')
+    expect(candidates[0]?.cleanedAt).toBeDefined()
   })
 
   it('lists candidates and promotes a would-open one into a ticket', async () => {

@@ -90,6 +90,8 @@ describe('pull requests', () => {
     expect(text).toContain('git worktree add ../review-3-abcdef12 refs/review/3-abcdef12')
     expect(text).toContain('gh pr comment 3 --repo o/r')
     expect(text).toContain('Never push, merge, force-push')
+    expect(pullRequestInstruction('o/r', pr(3, 'abcdef123456'), '/tmp/wt'))
+      .toContain('isolated checkout of this revision at /tmp/wt')
   })
 })
 
