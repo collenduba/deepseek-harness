@@ -56,7 +56,7 @@ kind: "package-reference"
 
 工单从 `queued` 进入 `working`，再到 `waiting` 或 `ready`，也可能进入 `blocked` 和 `failed`。启动失败会保留工单并标记为 `failed`，附上错误信息，面板可以看到发生了什么，而不是丢掉请求。
 
-`bot_open_ticket` 通过 `ctx.agents.create` 创建一个普通根会话作为执行者：它以 Bot 的工作区为工作目录，挂载到该工作区，标题为 `<bot>: <ticket>`，并收到一条指令消息。执行者不是子智能体；它比创建者活得久，并出现在侧栏。当它调用 `bot_report` 时，服务校验调用者是工单的执行会话，写入阶段和摘要，并在路由会话在线时发送一条通知。执行者的指令还会带上 Bot 的笔记（最新在前），位于“Known context for this bot”之下。Bot 指定工具白名单时，执行者只看到这些工具可调用，`tools/pre-execute` 门禁会拒绝其他工具；`bot_report`、`bot_remember`、`bot_request_approval` 与 `bot_handoff` 始终可用。需要决定的执行者调用 `bot_request_approval`，服务保存确切载荷及其 SHA-256 摘要并通知对话；`bot_decide_approval` 把决定记录到该载荷上，并把结果发回执行会话。默认这是建议性协议；开启 `enforceApprovals` 后，`tools/pre-execute` 会拒绝工单执行者中未被批准覆盖的受保护工具：只有针对该工单、载荷与确切 shell 命令相同的已批准请求才能放行，拒绝理由会提示先请求批准再重试。Bot 的 `hardFloor` 动作在请求时即被拒绝，之后也不能批准：必须由人执行。执行者也可以调用 `bot_handoff`：在另一个活跃 Bot 上开工单，记录 `parentTicket` 与 `parentBotName`，并告知新执行者来源工单。
+`bot_open_ticket` 通过 `ctx.agents.create` 创建一个普通根会话作为执行者：它以 Bot 的工作区为工作目录，挂载到该工作区，标题为 `<bot>: <ticket>`，并收到一条指令消息。它会挂载 Bot 指定的 preset，未指定时挂载注册表的默认 preset；两者都没有时执行者没有工具，因为根组合本身不携带工具。执行者不是子智能体；它比创建者活得久，并出现在侧栏。当它调用 `bot_report` 时，服务校验调用者是工单的执行会话，写入阶段和摘要，并在路由会话在线时发送一条通知。执行者的指令还会带上 Bot 的笔记（最新在前），位于“Known context for this bot”之下。Bot 指定工具白名单时，执行者只看到这些工具可调用，`tools/pre-execute` 门禁会拒绝其他工具；`bot_report`、`bot_remember`、`bot_request_approval` 与 `bot_handoff` 始终可用。需要决定的执行者调用 `bot_request_approval`，服务保存确切载荷及其 SHA-256 摘要并通知对话；`bot_decide_approval` 把决定记录到该载荷上，并把结果发回执行会话。默认这是建议性协议；开启 `enforceApprovals` 后，`tools/pre-execute` 会拒绝工单执行者中未被批准覆盖的受保护工具：只有针对该工单、载荷与确切 shell 命令相同的已批准请求才能放行，拒绝理由会提示先请求批准再重试。Bot 的 `hardFloor` 动作在请求时即被拒绝，之后也不能批准：必须由人执行。执行者也可以调用 `bot_handoff`：在另一个活跃 Bot 上开工单，记录 `parentTicket` 与 `parentBotName`，并告知新执行者来源工单。
 
 <a id="model-experience"></a>
 ## 模型体验
@@ -91,7 +91,7 @@ schema 在挂载期间保持静态。工单结果追加到其对话而不重写�
 - 事件来源、观察与自动模式、审批记录、记忆和能力授权尚未实现。
 - 每个工单一个执行者，没有并发上限或槽位核算。
 - 只有路由会话在线时报告才会到达；否则工单保留阶段和摘要。
-- 命名的 `preset` 必须存在于组合中；缺少 agent-preset 注册表时启动会明确报错。
+- 命名的 `preset` 必须存在于组合中；缺少 agent-preset 注册表时启动会明确报错。未指定 preset 时执行者挂载注册表当前的默认 preset，因此部署默认 preset 必须包含其工作所需的工具。
 - 生成的工具目录用桩存储域挂载本包，因此目录记录 schema，但不记录工具写入的记录。
 
 <a id="dev-note"></a>
