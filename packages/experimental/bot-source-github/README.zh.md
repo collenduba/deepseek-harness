@@ -77,7 +77,7 @@ Host 上的 `gh` CLI 必须已认证。本来源继承清理过的进程环境�
 - **投递。** 每个新 issue 先记录候选。`auto` 模式下打开一条标题为 `#<number> <title>` 的工单，把候选标为 `opened` 并附上工单 id，其余行为不变。`observe` 模式下只记录日志、候选保持 `would-open`。issue 按最旧优先处理，且整批记录完成后游标才前进，因此失败会在下次轮询重试整批。
 - **可测试性。** 轮询循环的列表与评论效果以参数传入，测试因此可以在没有 `gh` 进程的情况下，用真实存储覆盖观察、自动、准入与写回。
 - **拉取请求。** `target: pull-requests` 时，每个 `number@head` 组合是独立候选，因此新推送就是一次新审阅，旧修订不会被重开。默认跳过草稿，除非开启 `includeDrafts`。工单指令要求执行者为 head SHA 建立 worktree、对照 base 审阅、遵循仓库约定、运行成本低的检查、用一次 `gh pr comment` 发布摘要，并且绝不推送或合并。
-- **独立 worktree。** 开启 `worktrees` 后，来源把 `pull/<n>/head` 抓取到 `refs/dsh-review/<n>-<sha>`，在 `worktreeRoot` 下建立 detached worktree，把路径作为工单工作区传入，指令也说明执行者已在其中。审阅工单进入 `ready`、`failed` 或 `blocked` 后，下一次轮询移除 worktree 并在候选上记录 `cleanedAt`。
+- **独立 worktree。** 开启 `worktrees` 后，来源把 `pull/<n>/head` 抓取到 `refs/dsh-review/<n>-<sha>`，在 `worktreeRoot` 下建立 detached worktree，把路径作为工单工作区传入，指令也说明执行者已在其中。审阅工单进入 `ready`、`failed` 或 `blocked` 后，下一次轮询移除 worktree 与 `refs/dsh-review` 引用，并记录 `cleanedAt`。准备过程可安全重试：失败尝试留下的注册或引用会先被清理；单个修订失败不会阻塞其他修订。
 - **准入。** 作者不在 `allowedAuthors` 中的 issue 仍会记录候选，但标记为 `filtered`，两种模式下都不会开工单。比较为大小写不敏感的登录名。
 - **写回。** 开启 `writeBack` 后，每次轮询检查本来源的候选：工单到达 `ready`、`failed` 或 `blocked` 且尚无评论回执时，在 issue 上发布一条评论并记录时间。失败的评论会记录日志并在下次轮询重试；已投递的不会重复。
 - **失败。** `gh` 调用失败或缺少 Bot 时记录日志并在下一个间隔重试；循环不会让插件 fiber 退出，释放时会中止进行中的轮询并等待循环结束。

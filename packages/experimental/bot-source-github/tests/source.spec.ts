@@ -134,7 +134,7 @@ async function bench(options: {
 /** Boot real storage plus fake bots, and drive the pull-request loop. */
 async function benchPullRequests(
   script: GithubPullRequest[][],
-  options: { worktrees?: boolean; stages?: Record<string, string> } = {},
+  options: { worktrees?: boolean; stages?: Record<string, string>; failNumber?: number } = {},
 ) {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
@@ -177,6 +177,7 @@ async function benchPullRequests(
     },
     comment: () => Promise.resolve(),
     prepareWorktree: (input: { root: string; pullRequest: GithubPullRequest }) => {
+      if (options.failNumber === input.pullRequest.number) return Promise.reject(new Error('fetch failed'))
       const path = join(input.root, `review-${input.pullRequest.number}-${input.pullRequest.headRefOid.slice(0, 8)}`)
       prepared.push(path)
       return Promise.resolve(path)
@@ -283,6 +284,17 @@ describe('github source loop', () => {
     expect(removed).toEqual(['/tmp/worktrees/review-2-sha-a'])
     expect(candidates[0]?.worktree).toBe('/tmp/worktrees/review-2-sha-a')
     expect(candidates[0]?.cleanedAt).toBeDefined()
+  })
+
+  it('keeps reviewing other revisions when one worktree cannot be prepared', async () => {
+    const { tickets, prepared, candidates } = await benchPullRequests(
+      [[], [pullRequest(1, 'sha-1'), pullRequest(2, 'sha-2')], []],
+      { worktrees: true, failNumber: 1 },
+    )
+    expect(tickets.map(ticket => ticket.title)).toEqual(['Review #2 PR 2'])
+    expect(prepared).toEqual(['/tmp/worktrees/review-2-sha-2'])
+    expect(candidates.find(candidate => candidate.number === 1)?.state).toBe('would-open')
+    expect(candidates.find(candidate => candidate.number === 2)?.state).toBe('opened')
   })
 
   it('lists candidates and promotes a would-open one into a ticket', async () => {

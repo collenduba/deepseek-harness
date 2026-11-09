@@ -255,6 +255,7 @@ async function git(
   options: PollOptions,
   repoPath: string,
   args: readonly string[],
+  signal: AbortSignal,
 ): Promise<void> {
   const result = await execa('git', ['-C', repoPath, ...args], {
     env: { ...scrubbedParentEnv(), GIT_TERMINAL_PROMPT: '0' },
@@ -262,6 +263,7 @@ async function git(
     stdin: 'ignore',
     reject: false,
     timeout: options.timeoutMs,
+    cancelSignal: signal,
     maxBuffer: 8 * 1024 * 1024,
   })
   if (result.timedOut) throw new Error(`git ${args[0] ?? ''} timed out after ${options.timeoutMs}ms`)
@@ -276,14 +278,22 @@ async function git(
  */
 export async function prepareReviewWorktree(
   options: PollOptions,
-  input: { readonly repoPath: string; readonly root: string; readonly pullRequest: GithubPullRequest },
+  input: {
+    readonly repoPath: string
+    readonly root: string
+    readonly pullRequest: GithubPullRequest
+    readonly signal: AbortSignal
+  },
 ): Promise<string> {
   const short = input.pullRequest.headRefOid.slice(0, 8)
   const path = join(input.root, `review-${input.pullRequest.number}-${short}`)
   const ref = `refs/dsh-review/${input.pullRequest.number}-${short}`
   await mkdir(input.root, { recursive: true })
-  await git(options, input.repoPath, ['fetch', 'origin', `pull/${input.pullRequest.number}/head:${ref}`])
-  await git(options, input.repoPath, ['worktree', 'add', '--detach', path, ref])
+  // Retry-safe: a previous attempt may have left the registration or the ref.
+  await git(options, input.repoPath, ['worktree', 'remove', '--force', path], input.signal).catch(() => {})
+  await git(options, input.repoPath, ['update-ref', '-d', ref], input.signal).catch(() => {})
+  await git(options, input.repoPath, ['fetch', 'origin', `pull/${input.pullRequest.number}/head:${ref}`], input.signal)
+  await git(options, input.repoPath, ['worktree', 'add', '--detach', path, ref], input.signal)
   return path
 }
 
@@ -294,10 +304,15 @@ export async function prepareReviewWorktree(
  */
 export async function removeReviewWorktree(
   options: PollOptions,
-  input: { readonly repoPath: string; readonly path: string },
+  input: { readonly repoPath: string; readonly path: string; readonly ref: string; readonly signal: AbortSignal },
 ): Promise<void> {
-  await git(options, input.repoPath, ['worktree', 'remove', '--force', input.path])
-  await git(options, input.repoPath, ['worktree', 'prune'])
+  await git(options, input.repoPath, ['worktree', 'remove', '--force', input.path], input.signal)
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      if (!message.includes('is not a working tree') && !message.includes('No such file')) throw error
+    })
+  await git(options, input.repoPath, ['worktree', 'prune'], input.signal).catch(() => {})
+  await git(options, input.repoPath, ['update-ref', '-d', input.ref], input.signal).catch(() => {})
 }
 
 /**
