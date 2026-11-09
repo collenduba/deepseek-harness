@@ -38,6 +38,7 @@ const config = (over: Partial<Config> = {}): Config => ({
   mode: 'observe',
   writeBack: false,
   allowedAuthors: [],
+  autostart: true,
   maxSeen: 200,
   ...over,
 })

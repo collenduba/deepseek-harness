@@ -41,6 +41,8 @@ export interface Config {
   writeBack: boolean
   /** Logins allowed to open work; empty admits everyone. */
   allowedAuthors: string[]
+  /** Start the poll loop on mount; disable to drive `runSource` yourself. */
+  autostart: boolean
   /** How many handled issue numbers one repository remembers. */
   maxSeen: number
 }
@@ -60,6 +62,8 @@ export const Config: z<Config> = z.object({
     .description('Comment each finished ticket result on its issue.'),
   allowedAuthors: z.array(z.string()).default([])
     .description('Logins allowed to open work through this source; empty admits everyone.'),
+  autostart: z.boolean().default(true)
+    .description('Start the poll loop on mount; disable to drive runSource yourself.'),
   maxSeen: z.natural().min(1).max(2_000).default(200).description('How many handled issue numbers one repository remembers.'),
 })
 
@@ -81,6 +85,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const state: SourceState = {
     cursors: domain.table('cursors'),
     candidates: domain.table('candidates'),
+  }
+  if (config.autostart === false) {
+    registerTools(ctx, config, state)
+    return
   }
   ctx.effect(() => {
     const controller = new AbortController()
