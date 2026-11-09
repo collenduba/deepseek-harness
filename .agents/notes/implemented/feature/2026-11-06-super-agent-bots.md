@@ -18,13 +18,13 @@ A bot is a durable record, not a Session. One `bot` storage domain holds five ta
 
 | Table | Holds |
 |---|---|
-| `bots` | name, job, workspace, router Session, optional worker preset, status |
+| `bots` | name, job, workspace, router Session, optional worker preset, tool allowlist, and hard-floor actions, status |
 | `tickets` | title, instruction, stage, router Session, worker Session, summary, parent ticket and bot for handoffs |
 | `memories` | per-bot notes, with the ticket whose worker wrote each one |
 | `approvals` | action, exact payload, SHA-256 digest, status, decision note |
 | `notices` | router notices with their delivery time |
 
-The domain moved through versions 1–5 as tables and optional fields were added; every version loads the ones before it.
+The domain moved through versions 1–7 as tables and optional fields were added; every version loads the ones before it.
 
 ### Sessions
 
@@ -34,7 +34,7 @@ The Session that calls `bot_create` becomes the bot's router. Each ticket gets i
 
 | Tool | Caller | Effect |
 |---|---|---|
-| `bot_create` | any Session | Binds the conversation as a bot's router. |
+| `bot_create` | any Session | Binds the conversation as a bot's router, with an optional preset, tool allowlist, and hard-floor actions. |
 | `bot_list` | any | Bots and open ticket counts. |
 | `bot_open_ticket` | router | Opens a ticket and launches its worker. |
 | `bot_report` | worker | Records `waiting`, `ready`, `blocked`, or `failed` with a summary. |
@@ -46,7 +46,7 @@ The Session that calls `bot_create` becomes the bot's router. Each ticket gets i
 
 ### Authorization and approvals
 
-Approvals bind a decision to one payload and its digest. The protocol is advisory by default; with `enforceApprovals` on, a `tools/pre-execute` hook denies guarded shell tools in ticket workers unless an approved request for that ticket carries the exact command. The gate covers the `command` argument of the guarded tools only.
+Approvals bind a decision to one payload and its digest. The protocol is advisory by default; with `enforceApprovals` on, a `tools/pre-execute` hook denies guarded shell tools in ticket workers unless an approved request for that ticket carries the exact command. The gate covers the `command` argument of the guarded tools only. A bot may also name a tool allowlist, which the same gate enforces for its tickets while always keeping the reporting tools, and a hard floor of actions that are refused at request time and cannot be approved later.
 
 ### Attention and memory
 
@@ -58,7 +58,7 @@ Approvals bind a decision to one payload and its digest. The protocol is advisor
 
 ### Panel
 
-The `bot` Session projection folds the logged tool calls, results, and notices into `{ bot, tickets }`. `@deepseek-ai/dsh-client-ui-bot` renders it in a composer dock strip: bot name, ticket count, needs-you count, and up to five ticket rows ordered by stage.
+The `bot` Session projection folds the logged tool calls, results, and notices into `{ bot, tickets }`. `@deepseek-ai/dsh-client-ui-bot` renders it in a composer dock strip: bot name, ticket count, needs-you count, and up to five ticket rows ordered by stage. A row with a worker Session opens it through `ctx.uiWorkspace`.
 
 ### Packages and presets
 
@@ -85,10 +85,9 @@ The `bot` Session projection folds the logged tool calls, results, and notices i
 
 ## Deferred
 
-- Capability grants per bot and a per-bot tool policy beyond the shell gate.
-- Approval tiers by reversibility and data sensitivity, and a hard floor that cannot be pre-approved.
+- Approval tiers by reversibility and data sensitivity beyond the binary hard floor.
 - Attention severity, per-user quiet hours, and a digest schedule beyond one interval.
-- A roster UI, panel navigation to a worker Session, and a detail page per ticket.
+- A roster page across bots, and a detail page per ticket.
 - A Loader-booted fixture; the composition test mounts the real service graph without the Loader.
 - Source polling continues only while the Host runs, and only issues are watched.
 
@@ -96,7 +95,8 @@ The `bot` Session projection folds the logged tool calls, results, and notices i
 
 - Bots are auditable: every ticket names its mandate's origin, its worker, and its outcome; every approval names the digest it decided.
 - Unattended work is bounded: quiet hours, an author allowlist, observe-before-auto, and a shell gate that refuses unapproved commands.
-- The storage domain carries five format versions. Each addition is compatible, but the schema and its migration surface grow with every feature.
+- The storage domain carries seven format versions. Each addition is compatible, but the schema and its migration surface grow with every feature.
 - Approvals are only enforced for guarded shell tools; other consequential actions still depend on the worker following the protocol.
+- Tool allowlists deny at call time, so the model still sees denied tools in its catalog and learns the restriction from the denial.
 - Source behaviour is polling only and stops with the Host, so a bot is not a hosted service.
-- The panel is read-only; it shows work but cannot open it.
+- The panel shows work and can open a worker Session, but it has no detail page and no cross-bot roster.
