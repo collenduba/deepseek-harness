@@ -10,10 +10,11 @@ import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the `ctx.bots` Service declaration from the bot package.
 import type {} from '@deepseek-ai/dsh-bot'
 import z from '@deepseek-ai/schemastery'
-import { candidateOf, freshIssues, listIssues, ticketInstruction } from './github.ts'
+import { candidateOf, commentIssue, freshIssues, listIssues, reportComment, ticketInstruction } from './github.ts'
 import type { PollOptions } from './github.ts'
 import { sourceDomainSpec } from './spec.ts'
-import type { SourceKey } from './spec.ts'
+import type { CandidateId, SourceCandidate, SourceKey } from './spec.ts'
+import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 
 /** Deployment configuration for one repository watch. */
 export interface Config {
@@ -33,6 +34,8 @@ export interface Config {
   backlog: 'ignore' | 'open'
   /** Whether a new issue opens a ticket or only records a candidate. */
   mode: 'observe' | 'auto'
+  /** Whether a finished ticket comments its result on the issue. */
+  writeBack: boolean
   /** How many handled issue numbers one repository remembers. */
   maxSeen: number
 }
@@ -48,6 +51,8 @@ export const Config: z<Config> = z.object({
     .description('ignore marks existing issues as handled; open tickets every open issue on the first poll.'),
   mode: z.union([z.const('observe'), z.const('auto')]).default('observe')
     .description('observe records what it would do without opening tickets; auto opens them.'),
+  writeBack: z.boolean().default(false)
+    .description('Comment each finished ticket result on its issue.'),
   maxSeen: z.natural().min(1).max(2_000).default(200).description('How many handled issue numbers one repository remembers.'),
 })
 
@@ -82,6 +87,32 @@ export function apply(ctx: Context, config: Config): void {
 /** Read cancellation through a call so control-flow narrowing cannot pin the flag. */
 function isAborted(signal: AbortSignal): boolean {
   return signal.aborted
+}
+
+/** Comment each finished ticket result once, when write-back is on. */
+async function publishReports(
+  ctx: Context,
+  config: Config,
+  candidates: KvTable<CandidateId, SourceCandidate>,
+  signal: AbortSignal,
+): Promise<void> {
+  if (!config.writeBack) return
+  const bot = ctx.bots.list().find(candidate => candidate.name === config.bot)
+  if (bot === undefined) return
+  const tickets = new Map(ctx.bots.ticketsOf(bot.id).map(ticket => [String(ticket.id), ticket]))
+  for (const [, candidate] of [...candidates.entries()]) {
+    if (candidate.ticketId === undefined || candidate.commentedAt !== undefined) continue
+    const ticket = tickets.get(candidate.ticketId)
+    if (ticket === undefined) continue
+    if (ticket.stage !== 'ready' && ticket.stage !== 'failed' && ticket.stage !== 'blocked') continue
+    try {
+      await commentIssue(pollOptions(config), candidate.number, reportComment(bot.name, ticket), signal)
+      await candidates.put(candidate.id, { ...candidate, commentedAt: new Date().toISOString() })
+    } catch (error: unknown) {
+      if (signal.aborted) return
+      ctx.logger.warn(`bot-source-github: comment for #${candidate.number} failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
 }
 
 /** Poll options derived from config. */
@@ -138,6 +169,7 @@ async function watch(ctx: Context, config: Config, signal: AbortSignal): Promise
           const handled = fresh.map(issue => String(issue.number)).reverse()
           await cursors.put(key, { seen: [...handled, ...current.seen].slice(0, config.maxSeen) })
         }
+        await publishReports(ctx, config, candidates, signal)
       } catch (error: unknown) {
         if (isAborted(signal)) break
         ctx.logger.warn(`bot-source-github: poll failed: ${error instanceof Error ? error.message : String(error)}`)
