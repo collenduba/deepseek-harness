@@ -9,7 +9,7 @@ import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import BotRegistry, {
   approvalRecordSchema, botProjection, botRecordSchema, isQuietAt, memoryRecordSchema, parseQuietHours,
-  ticketRecordSchema, requireApproval, workerInstruction,
+  ticketRecordSchema, capabilityAllows, requireApproval, workerInstruction,
 } from '../src/index.ts'
 import type { BotApprovalId, BotId, BotMemoryId, BotProjectionState, TicketId } from '../src/index.ts'
 
@@ -66,6 +66,16 @@ describe('bot records', () => {
     })
     expect(ctx.bots.findByRouter(ROUTER)?.id).toBe(bot.id)
     expect(ctx.bots.list().map(entry => entry.name)).toEqual(['reviewer'])
+  })
+
+  it('stores an optional worker tool allowlist', async () => {
+    const { ctx } = await harness()
+    const bot = await ctx.bots.create({
+      name: 'reviewer', job: 'Review pull requests', workspace: '/tmp/work', routerSession: ROUTER,
+      tools: ['read', 'grep', 'bash'],
+    })
+    expect(bot.tools).toEqual(['read', 'grep', 'bash'])
+    expect(ctx.bots.list()[0]?.tools).toEqual(['read', 'grep', 'bash'])
   })
 
   it('rejects a duplicate name in the same Session and a relative workspace', async () => {
@@ -224,6 +234,14 @@ describe('approvals', () => {
 })
 
 describe('approval gate', () => {
+  it('applies a bot tool allowlist but keeps the reporting tools', () => {
+    expect(capabilityAllows(undefined, 'bash')).toBe(true)
+    expect(capabilityAllows(['read', 'bash'], 'bash')).toBe(true)
+    expect(capabilityAllows(['read'], 'bash')).toBe(false)
+    expect(capabilityAllows(['read'], 'bot_report')).toBe(true)
+    expect(capabilityAllows([], 'read')).toBe(false)
+  })
+
   it('requires approval only for guarded tools with an exact command', () => {
     const approved = new Set(['pnpm test'])
     expect(requireApproval(['bash'], approved, { name: 'bash', arguments: { command: 'pnpm test', description: 'x' } }))
@@ -302,11 +320,12 @@ describe('worker instructions', () => {
       text: 'Run the unit tests before opening a pull request.',
       createdAt: '2026-11-06T00:00:00.000Z',
     }
-    const text = workerInstruction(bot, ticket, [memory])
+    const text = workerInstruction({ ...bot, tools: ['read', 'bash'] }, ticket, [memory])
     expect(text).toContain('ticket-1')
     expect(text).toContain('Review the diff and report.')
     expect(text).toContain('bot_report')
     expect(text).toContain('Run the unit tests before opening a pull request.')
+    expect(text).toContain('You may call only these tools: read, bash, plus the bot reporting tools.')
     expect(workerInstruction(bot, ticket, [], { botName: 'planner', ticketId: brandString<TicketId>('ticket-0') }))
       .toContain('handed off from ticket ticket-0 of bot "planner"')
   })

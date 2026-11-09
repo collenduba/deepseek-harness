@@ -49,6 +49,8 @@ export interface BotRecord {
   readonly routerSession: SessionId
   /** Agent preset for worker Sessions; absent means the deployment default. */
   readonly preset?: string | undefined
+  /** Tool names worker Sessions may call; absent means every tool. */
+  readonly tools?: readonly string[] | undefined
   /** Whether new tickets are accepted. */
   readonly status: BotStatus
   /** ISO-8601 creation time. */
@@ -165,7 +167,9 @@ export interface CreateBotInput {
   /** The Session that owns the bot. */
   readonly routerSession: SessionId
   /** Optional worker Agent preset. */
-  readonly preset?: string | undefined
+  readonly preset?: string
+  /** Optional tool allowlist for worker Sessions. */
+  readonly tools?: readonly string[] | undefined
 }
 
 /** Input accepted by {@link BotRegistry.openTicket}. */

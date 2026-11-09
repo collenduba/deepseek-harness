@@ -586,8 +586,6 @@ Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/
 
 在本对话中创建一个持久 Bot。该对话成为 Bot 的路由会话：它接收 Bot 的工单报告。用 bot_open_ticket 给 Bot 派活。
 
-Create a durable bot in this conversation. The conversation becomes the bot's router: it receives the bot's ticket reports. Use bot_open_ticket to give the bot work.
-
 ```json
 {
   "type": "object",
@@ -607,6 +605,13 @@ Create a durable bot in this conversation. The conversation becomes the bot's ro
     "preset": {
       "type": "string",
       "description": "Optional worker agent preset id. Omit to use the deployment default."
+    },
+    "tools": {
+      "type": "array",
+      "description": "Optional tool names its workers may call. Omit to allow every tool.",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "required": [

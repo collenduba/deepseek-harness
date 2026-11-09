@@ -50,6 +50,7 @@ export function workerInstruction(
     `You are the worker for ticket ${ticket.id} of bot "${bot.name}".`,
     `Bot job: ${bot.job}`,
     ...origin === undefined ? [] : ['', `This ticket was handed off from ticket ${origin.ticketId} of bot "${origin.botName}".`],
+    ...bot.tools === undefined ? [] : ['', `You may call only these tools: ${bot.tools.join(', ')}, plus the bot reporting tools.`],
     ...memories.length === 0 ? [] : ['', 'Known context for this bot, from earlier tickets:', ...memories.map(memory => `- ${memory.text}`)],
     '',
     'Work only on this instruction:',
