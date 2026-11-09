@@ -56,7 +56,7 @@ The bundle adds no request content of its own. Selecting `bot-worker` or `bot-re
 - Presets are selectable, not enforced: `bot_create` binds whichever Session it runs in, so the router preset is a convention rather than a gate.
 - There is no no-wait guard yet; a router can still run a blocking shell command.
 - The worker preset omits web, subagent, schedule, and presentation tools by design; add them in a derived preset when a deployment needs them.
-- The reviewer preset omits the skill tools, so it cannot load repository review skills, and its shell is not read-only: write prevention belongs to the bot's tool allowlist and the deployment's sandbox policy.
+- The reviewer preset omits the skill tools on purpose to keep its tool list small, so it cannot load repository review skills; its shell is not read-only, and write prevention belongs to the bot's tool allowlist and the deployment's sandbox policy.
 - The GitHub source is inserted disabled: it needs a `bot` and `repository` before it can run, and its `target` selects issues or pull-request revisions.
 
 <a id="dev-note"></a>
@@ -65,5 +65,5 @@ The bundle adds no request content of its own. Selecting `bot-worker` or `bot-re
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-The bundle stays a patch-only package. Runtime behavior belongs to `dsh-bot`, which owns the domain, the tools, and worker launch.
+The bundle stays a patch-only package. Runtime behavior belongs to `dsh-bot`, which owns the domain, the tools, and worker launch. The preset test parses the patch and asserts rows and configs; whether a plugin accepts those configs is still proven only by loading the composition through the Loader.
 </details>
