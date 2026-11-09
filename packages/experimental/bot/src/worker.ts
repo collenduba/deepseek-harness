@@ -99,12 +99,15 @@ export async function launchWorker(
   const sessionId = brandString<SessionId>(`bot-worker-${randomUUID()}`)
   let presetId: string | undefined
   let mountPreset: ((agentCtx: Context) => Promise<void>) | undefined
-  if (bot.preset !== undefined) {
-    const presets = ctx.get('agentPresets')
+  const presets = ctx.get('agentPresets')
+  // A worker must inherit a preset: the root composition carries no file or
+  // shell tools, so an unmounted worker could not act on its instruction.
+  const wantedPreset = bot.preset ?? presets?.defaultId
+  if (wantedPreset !== undefined) {
     if (presets === undefined) {
-      throw new Error(`bot '${bot.name}' names agent preset '${bot.preset}', but no agent-preset registry is mounted`)
+      throw new Error(`bot '${bot.name}' needs agent preset '${wantedPreset}', but no agent-preset registry is mounted`)
     }
-    const resolved = await presets.resolve(bot.preset)
+    const resolved = await presets.resolve(wantedPreset)
     presetId = resolved.id
     const registry = presets
     mountPreset = async (agentCtx: Context) => { await registry.mount(agentCtx, resolved.id) }
