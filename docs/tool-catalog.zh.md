@@ -720,7 +720,7 @@ Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/
 
 ### `bot_open_ticket`
 
-在 Bot 上开一条工单并启动其执行者。可见性由调用会话决定：该 Bot 的路由会话。
+给这个对话的 Bot 一件工作。一个执行会话运行该指令并在这里报告。当请求足够具体、无需进一步提问即可执行时使用。
 
 ```json
 {
