@@ -3,13 +3,46 @@
 .strip {
   box-sizing: border-box;
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 2px;
   width: 100%;
   padding: 2px 12px 4px;
   font-size: 12px;
   line-height: 16px;
   color: var(--dsh-color-text-secondary, #6b7280);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tickets {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ticket {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stage {
+  flex: none;
+  color: var(--dsh-color-text-tertiary, #9ca3af);
 }
 
 .bot {
