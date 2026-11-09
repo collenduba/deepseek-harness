@@ -282,6 +282,9 @@ export class BotRegistry extends Service {
       void this.reconcile().catch((error: unknown) => {
         this.ctx.logger.warn(`bot: startup reconciliation failed: ${String(error)}`)
       })
+      void this.pumpWhenReady().catch((error: unknown) => {
+        this.ctx.logger.warn(`bot: startup pump failed: ${String(error)}`)
+      })
     })
   }
 
@@ -807,6 +810,28 @@ export class BotRegistry extends Service {
     if (agent !== undefined && agent.status === 'running') agent.cancel({ kind: 'user' })
     await this.notifyRouter(committed, 'blocked', summary)
     await this.pumpQueue(committed.botId)
+  }
+
+  /**
+   * Pump queued tickets once the preset registry is mounted, retrying briefly.
+   * A fresh boot composes rows in order, so launching before the registry
+   * exists would fail the launch and mark the ticket failed.
+   */
+  private async pumpWhenReady(): Promise<void> {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (this.ctx.get('agentPresets') !== undefined) {
+        for (const bot of this.list()) {
+          if (bot.status !== 'active') continue
+          try {
+            await this.pumpQueue(bot.id)
+          } catch (error: unknown) {
+            this.ctx.logger.warn(`bot: startup pump for bot '${bot.id}' failed: ${String(error)}`)
+          }
+        }
+        return
+      }
+      await new Promise(resolve => setTimeout(resolve, 1_000))
+    }
   }
 
   /**
