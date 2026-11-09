@@ -342,7 +342,7 @@ describe('tickets', () => {
     }
   })
 
-  it('re-arms a live worker and leaves a waiting ticket waiting on reconciliation', async () => {
+  it('re-arms a live worker and bounds a waiting ticket on reconciliation', async () => {
     vi.useFakeTimers()
     try {
       const { ctx, workers } = await harness({ workerTimeoutMinutes: 1 })
@@ -356,6 +356,29 @@ describe('tickets', () => {
       expect(ctx.bots.ticketsOf(bot.id).find(entry => entry.id === waiting.id)?.stage).toBe('waiting')
       await vi.advanceTimersByTimeAsync(60_000)
       expect(workers.get(working.workerSession!)?.cancel).toHaveBeenCalled()
+      expect(workers.get(waiting.workerSession!)?.cancel).toHaveBeenCalled()
+      const waited = ctx.bots.ticketsOf(bot.id).find(entry => entry.id === waiting.id)
+      expect(waited?.stage).toBe('blocked')
+      expect(waited?.summary).toContain('waited past')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the budget running while a worker waits for an answer', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, workers } = await harness({ workerTimeoutMinutes: 1 })
+      const bot = await ctx.bots.create({
+        name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER,
+      })
+      const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Waiting', instruction: 'Wait.' })
+      await ctx.bots.report(ticket.workerSession!, ticket.id, { stage: 'waiting', summary: 'Need input.' })
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(workers.get(ticket.workerSession!)?.cancel).toHaveBeenCalled()
+      const updated = ctx.bots.ticketsOf(bot.id)[0]
+      expect(updated?.stage).toBe('blocked')
+      expect(updated?.summary).toContain('waited past')
     } finally {
       vi.useRealTimers()
     }

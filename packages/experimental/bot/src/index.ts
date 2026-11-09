@@ -480,13 +480,17 @@ export class BotRegistry extends Service {
       throw new Error(`only the worker Session of ticket '${ticketId}' can report on it`)
     }
     const summary = requireText(report.summary, 'summary')
-    this.clearBudget(ticketId)
     const updated = await this.ticketsTable.update(ticketId, current => ({
       ...current,
       stage: report.stage,
       summary,
       updatedAt: now(),
     }))
+    if (report.stage === 'ready' || report.stage === 'failed' || report.stage === 'blocked') {
+      this.clearBudget(ticketId)
+    } else {
+      this.armBudget(ticketId)
+    }
     await this.notifyRouter(ticket, report.stage, summary)
     if (report.stage === 'ready' || report.stage === 'failed' || report.stage === 'blocked') {
       await this.pumpQueue(ticket.botId)
@@ -752,7 +756,6 @@ export class BotRegistry extends Service {
         this.ctx.logger.warn(`bot: worker budget for ticket '${ticketId}' failed: ${String(error)}`)
       })
     }, this.workerTimeoutMinutes * 60_000)
-    if (typeof timer.unref === 'function') timer.unref()
     this.budgets.set(ticketId, timer)
   }
 
@@ -768,17 +771,22 @@ export class BotRegistry extends Service {
   private async expireBudget(ticketId: TicketId): Promise<void> {
     this.budgets.delete(ticketId)
     const ticket = this.ticketsTable.get(ticketId)
-    if (ticket === undefined || ticket.stage !== 'working') return
-    const summary = `worker exceeded the ${this.workerTimeoutMinutes}-minute budget`
-    const agent = ticket.workerSession === undefined ? undefined : this.ctx.get('agents')?.get(ticket.workerSession)
-    if (agent !== undefined && agent.status === 'running') agent.cancel({ kind: 'user' })
-    let changed = false
+    if (ticket === undefined) return
+    const waited = ticket.stage === 'waiting'
+    if (ticket.stage !== 'working' && !waited) return
+    const summary = waited
+      ? `worker waited past the ${this.workerTimeoutMinutes}-minute budget without an answer`
+      : `worker exceeded the ${this.workerTimeoutMinutes}-minute budget`
     const updated = await this.ticketsTable.update(ticketId, (current) => {
-      if (current.stage !== 'working') return current
-      changed = true
+      if (current.stage !== 'working' && current.stage !== 'waiting') return current
       return { ...current, stage: 'blocked', summary, updatedAt: now() }
     })
-    if (!changed) return
+    if (updated.stage !== 'blocked' || updated.summary !== summary) return
+    const committed = this.ticketsTable.get(ticketId)
+    if (committed !== undefined && committed.stage === 'blocked' && committed.summary === summary) {
+      const agent = committed.workerSession === undefined ? undefined : this.ctx.get('agents')?.get(committed.workerSession)
+      if (agent !== undefined && agent.status === 'running') agent.cancel({ kind: 'user' })
+    }
     await this.notifyRouter(updated, 'blocked', summary)
     await this.pumpQueue(updated.botId)
   }
@@ -793,11 +801,16 @@ export class BotRegistry extends Service {
       const agent = ticket.workerSession === undefined ? undefined : this.ctx.get('agents')?.get(ticket.workerSession)
       if (agent === undefined) {
         const summary = 'worker is not running; the Host restarted or its Session ended'
-        await this.ticketsTable.update(id, current => ({ ...current, stage: 'blocked', summary, updatedAt: now() }))
-        await this.notifyRouter(ticket, 'blocked', summary)
+        const updated = await this.ticketsTable.update(id, (current) => {
+          if (current.stage !== 'working' && current.stage !== 'waiting') return current
+          return { ...current, stage: 'blocked', summary, updatedAt: now() }
+        })
+        if (updated.stage === 'blocked' && updated.summary === summary) {
+          await this.notifyRouter(updated, 'blocked', summary)
+        }
         continue
       }
-      if (ticket.stage === 'working') this.armBudget(id)
+      this.armBudget(id)
     }
     for (const bot of this.list()) {
       if (bot.status === 'active') await this.pumpQueue(bot.id)
