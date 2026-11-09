@@ -366,7 +366,7 @@ export class BotRegistry extends Service {
     const bot = this.findByRouter(input.routerSession)
     if (bot === undefined) throw new Error('no bot is bound to this Session; call bot_create first')
     if (bot.status !== 'active') throw new Error(`bot '${bot.name}' is paused`)
-    return await this.createTicket(bot, input.title, input.instruction)
+    return await this.createTicket(bot, input.title, input.instruction, undefined, input.workspace)
   }
 
   /**
@@ -400,9 +400,14 @@ export class BotRegistry extends Service {
     titleInput: string,
     instructionInput: string,
     parent?: { readonly ticket: TicketRecord; readonly bot: BotRecord; readonly depth: number },
+    workspaceInput?: string,
   ): Promise<TicketRecord> {
     const title = requireText(titleInput, 'title')
     const instruction = requireText(instructionInput, 'instruction')
+    const workspace = workspaceInput === undefined ? undefined : requireText(workspaceInput, 'workspace')
+    if (workspace !== undefined && !isAbsolute(workspace)) {
+      throw new Error(`ticket workspace must be an absolute path: ${workspace}`)
+    }
     const timestamp = now()
     const ticket: TicketRecord = {
       id: brandString<TicketId>(`ticket-${randomUUID()}`),
@@ -411,6 +416,7 @@ export class BotRegistry extends Service {
       instruction,
       stage: 'queued',
       routerSession: bot.routerSession,
+      ...(workspace === undefined ? {} : { workspace }),
       ...(parent === undefined
         ? {}
         : { parentTicket: parent.ticket.id, parentBotName: parent.bot.name, handoffDepth: parent.depth }),

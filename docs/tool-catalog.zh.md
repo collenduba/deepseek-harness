@@ -720,9 +720,7 @@ Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/
 
 ### `bot_open_ticket`
 
-给本对话的 Bot 一个工作单元。执行会话运行指令并回报到这里。当请求足够具体、无需再提问时使用。
-
-Give this conversation's bot one unit of work. A worker Session runs the instruction and reports back here. Use this when the request is concrete enough to execute without further questions.
+在 Bot 上开一条工单并启动其执行者。可见性由调用会话决定：该 Bot 的路由会话。
 
 ```json
 {

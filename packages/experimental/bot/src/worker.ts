@@ -95,7 +95,7 @@ export async function launchWorker(
   memories: readonly BotMemoryRecord[] = [],
   origin?: TicketOrigin,
 ): Promise<SessionId> {
-  const workspace = await ctx.workspaceRegistry.create(bot.workspace)
+  const workspace = await ctx.workspaceRegistry.create(ticket.workspace ?? bot.workspace)
   const sessionId = brandString<SessionId>(`bot-worker-${randomUUID()}`)
   let presetId: string | undefined
   let mountPreset: ((agentCtx: Context) => Promise<void>) | undefined

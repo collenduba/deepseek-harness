@@ -44,19 +44,19 @@ kind: "package-reference"
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
-服务打开一个 `bot` 域，版本 10，包含五张表。版本 1 到版本 9 的存储原样加载。
+服务打开一个 `bot` 域，版本 11，包含五张表。版本 1 到版本 10 的存储原样加载。
 
 | 表 | 键 | 保存 |
 |---|---|---|
 | `bots` | `BotId` | 名字、职责、工作区、路由会话、可选的执行 preset、工具白名单、被禁止的 shell 命令模式与硬性底线动作、状态、时间戳 |
-| `tickets` | `TicketId` | 标题、指令、阶段、路由会话、执行会话、摘要、时间戳 |
+| `tickets` | `TicketId` | 标题、指令、可选工作区、阶段、路由会话、执行会话、摘要、时间戳 |
 | `memories` | `BotMemoryId` | Bot、文本、创建时间，以及写下它的工单（若有） |
 | `approvals` | `BotApprovalId` | Bot、工单、动作、确切载荷、SHA-256 摘要、状态、决定备注 |
 | `notices` | `BotNoticeId` | Bot、工单、对话、正文、摘要、创建与投递时间 |
 
 工单从 `queued` 进入 `working`，再到 `waiting` 或 `ready`，也可能进入 `blocked` 和 `failed`。一个 Bot 同时最多运行 `maxWorkersPerBot` 个执行者：更多工单留在 `queued` 且没有执行会话，`ready`、`failed` 或 `blocked` 的报告会启动最旧的排队工单。超过 `maxHandoffDepth` 的交接在创建工单前即被拒绝；`waiting` 保留槽位。执行者还有墙钟预算（`workerTimeoutMinutes`，默认 30，`0` 关闭）：计时从启动开始，等待答复的时间也计入，而运行时投递的答复会把 `waiting` 工单移回 `working` 并重新开始计时，`blocked` 工单保持 blocked；到期时取消执行者、把工单标记为 blocked、通知路由会话，并启动下一个排队工单。启动时运行时会把手头已无执行者的工单标记为 blocked、为仍在运行的执行者重新装上预算，因此重启不会让工单永远停在 `working`；排队工单在组合就绪后启动。启动失败会保留工单并标记为 `failed`，附上错误信息，面板可以看到发生了什么，而不是丢掉请求。
 
-`bot_open_ticket` 通过 `ctx.agents.create` 创建一个普通根会话作为执行者：它以 Bot 的工作区为工作目录，挂载到该工作区，标题为 `<bot>: <ticket>`，并收到一条指令消息。它会挂载 Bot 指定的 preset，未指定时挂载注册表的默认 preset；两者都没有时执行者没有工具，因为根组合本身不携带工具。执行者不是子智能体；它比创建者活得久，并出现在侧栏。当它调用 `bot_report` 时，服务校验调用者是工单的执行会话，写入阶段和摘要，并在路由会话在线时发送一条通知。执行者的指令还会带上 Bot 的笔记（最新在前），位于“Known context for this bot”之下。Bot 指定工具白名单时，执行者只看到这些工具可调用，`tools/pre-execute` 门禁会拒绝其他工具；`bot_report`、`bot_remember`、`bot_request_approval` 与 `bot_handoff` 始终可用。需要决定的执行者调用 `bot_request_approval`，服务保存确切载荷及其 SHA-256 摘要并通知对话；`bot_decide_approval` 把决定记录到该载荷上，并把结果发回执行会话。默认这是建议性协议；开启 `enforceApprovals` 后，`tools/pre-execute` 会拒绝工单执行者中未被批准覆盖的受保护工具：只有针对该工单、载荷与确切 shell 命令相同的已批准请求才能放行，拒绝理由会提示先请求批准再重试。Bot 的 `hardFloor` 动作在请求时即被拒绝，之后也不能批准：必须由人执行。Bot 还可以列出 `blockedCommands`（大小写不敏感的正则）；`tools/pre-execute` 门禁会拒绝任何匹配的受保护 shell 命令，无论审批状态如何。执行者也可以调用 `bot_handoff`：在另一个活跃 Bot 上开工单，记录 `parentTicket` 与 `parentBotName`，并告知新执行者来源工单。
+`bot_open_ticket` 通过 `ctx.agents.create` 创建一个普通根会话作为执行者：它以 Bot 的工作区（若工单自带工作区则用它）为工作目录，挂载到该工作区，标题为 `<bot>: <ticket>`，并收到一条指令消息。它会挂载 Bot 指定的 preset，未指定时挂载注册表的默认 preset；两者都没有时执行者没有工具，因为根组合本身不携带工具。执行者不是子智能体；它比创建者活得久，并出现在侧栏。当它调用 `bot_report` 时，服务校验调用者是工单的执行会话，写入阶段和摘要，并在路由会话在线时发送一条通知。执行者的指令还会带上 Bot 的笔记（最新在前），位于“Known context for this bot”之下。Bot 指定工具白名单时，执行者只看到这些工具可调用，`tools/pre-execute` 门禁会拒绝其他工具；`bot_report`、`bot_remember`、`bot_request_approval` 与 `bot_handoff` 始终可用。需要决定的执行者调用 `bot_request_approval`，服务保存确切载荷及其 SHA-256 摘要并通知对话；`bot_decide_approval` 把决定记录到该载荷上，并把结果发回执行会话。默认这是建议性协议；开启 `enforceApprovals` 后，`tools/pre-execute` 会拒绝工单执行者中未被批准覆盖的受保护工具：只有针对该工单、载荷与确切 shell 命令相同的已批准请求才能放行，拒绝理由会提示先请求批准再重试。Bot 的 `hardFloor` 动作在请求时即被拒绝，之后也不能批准：必须由人执行。Bot 还可以列出 `blockedCommands`（大小写不敏感的正则）；`tools/pre-execute` 门禁会拒绝任何匹配的受保护 shell 命令，无论审批状态如何。执行者也可以调用 `bot_handoff`：在另一个活跃 Bot 上开工单，记录 `parentTicket` 与 `parentBotName`，并告知新执行者来源工单。
 
 <a id="model-experience"></a>
 ## 模型体验

@@ -77,6 +77,8 @@ export interface TicketRecord {
   readonly stage: TicketStage
   /** The Session that receives this ticket's reports. */
   readonly routerSession: SessionId
+  /** Working directory for the worker; absent means the bot's workspace. */
+  readonly workspace?: string | undefined
   /** The worker Session running the ticket, once launched. */
   readonly workerSession?: SessionId | undefined
   /** The worker's latest one-line outcome or question. */
@@ -192,4 +194,6 @@ export interface OpenTicketInput {
   readonly title: string
   /** The instruction the worker runs. */
   readonly instruction: string
+  /** Optional absolute working directory for this ticket's worker. */
+  readonly workspace?: string
 }
