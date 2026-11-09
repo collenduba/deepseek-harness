@@ -37,6 +37,7 @@ export const botRecordSchema = z.object({
   routerSession: sessionId,
   preset: z.string().min(1).optional(),
   tools: z.array(z.string().min(1)).optional(),
+  blockedCommands: z.array(z.string().min(1)).optional(),
   hardFloor: z.array(z.string().min(1)).optional(),
   status: z.enum(['active', 'paused']),
   createdAt: z.string().min(1),
@@ -98,13 +99,13 @@ export const noticeRecordSchema = z.object({
 
 /**
  * The `bot` domain: bots, tickets, remembered notes, approval requests, and
- * notices, with no global state. Version 9 records a ticket's handoff depth;
- * versions 1 through 8 load unchanged and read as depth 0.
+ * notices, with no global state. Version 10 adds optional blocked shell
+ * command patterns on a bot; versions 1 through 9 load unchanged.
  */
 export const botDomainSpec = defineDomain({
   name: 'bot',
-  version: 9,
-  compatibleVersions: [1, 2, 3, 4, 5, 6, 7, 8],
+  version: 10,
+  compatibleVersions: [1, 2, 3, 4, 5, 6, 7, 8, 9],
   tables: {
     bots: domainTable<BotId, BotRecord>(botRecordSchema),
     tickets: domainTable<TicketId, TicketRecord>(ticketRecordSchema),

@@ -619,6 +619,13 @@ Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/
       "items": {
         "type": "string"
       }
+    },
+    "blocked_commands": {
+      "type": "array",
+      "description": "Optional case-insensitive regular expressions that deny shell commands matching them.",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "required": [

@@ -51,6 +51,8 @@ export interface BotRecord {
   readonly preset?: string | undefined
   /** Tool names worker Sessions may call; absent means every tool. */
   readonly tools?: readonly string[] | undefined
+  /** Case-insensitive regular expressions whose match denies a shell command. */
+  readonly blockedCommands?: readonly string[] | undefined
   /** Action names a person must perform; the bot may never request them. */
   readonly hardFloor?: readonly string[] | undefined
   /** Whether new tickets are accepted. */
@@ -176,6 +178,8 @@ export interface CreateBotInput {
   readonly preset?: string
   /** Optional tool allowlist for worker Sessions. */
   readonly tools?: readonly string[]
+  /** Optional case-insensitive regular expressions that deny shell commands. */
+  readonly blockedCommands?: readonly string[]
   /** Optional actions a person must perform. */
   readonly hardFloor?: readonly string[] | undefined
 }

@@ -157,6 +157,24 @@ export function isHardFloor(actions: readonly string[] | undefined, action: stri
   return actions?.includes(action) ?? false
 }
 
+/**
+ * The first pattern that denies one shell command.
+ * @param patterns - case-insensitive regular expressions; undefined allows every command.
+ * @param command - the shell command the worker wants to run.
+ * @returns the matching pattern, or undefined when the command is allowed.
+ */
+export function blockedCommand(patterns: readonly string[] | undefined, command: string): string | undefined {
+  if (patterns === undefined) return undefined
+  return patterns.find(pattern => new RegExp(pattern, 'i').test(command))
+}
+
+/** The `command` argument of a shell tool call, when it carries one. */
+function shellCommand(args: unknown): string | undefined {
+  if (typeof args !== 'object' || args === null) return undefined
+  const command = (args as Record<string, unknown>).command
+  return typeof command === 'string' ? command : undefined
+}
+
 /** Current time as the ISO-8601 string every stored timestamp uses. */
 function now(): string {
   return new Date().toISOString()
@@ -261,6 +279,17 @@ export class BotRegistry extends Service {
     const preset = input.preset === undefined ? undefined : requireText(input.preset, 'preset')
     const tools = input.tools === undefined ? undefined : input.tools.map(tool => requireText(tool, 'tools'))
     const hardFloor = input.hardFloor === undefined ? undefined : input.hardFloor.map(action => requireText(action, 'hardFloor'))
+    const blockedCommands = input.blockedCommands === undefined
+      ? undefined
+      : input.blockedCommands.map((entry) => {
+        const pattern = requireText(entry, 'blockedCommands')
+        try {
+          new RegExp(pattern, 'i')
+        } catch {
+          throw new Error(`blockedCommands pattern is not a valid regular expression: ${pattern}`)
+        }
+        return pattern
+      })
     for (const [, bot] of this.botsTable.entries()) {
       if (String(bot.routerSession) !== String(input.routerSession)) continue
       if (bot.name === name) throw new Error(`this Session already owns a bot named '${name}'`)
@@ -275,6 +304,7 @@ export class BotRegistry extends Service {
       ...(preset === undefined ? {} : { preset }),
       ...(tools === undefined ? {} : { tools }),
       ...(hardFloor === undefined ? {} : { hardFloor }),
+      ...(blockedCommands === undefined ? {} : { blockedCommands }),
       status: 'active',
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -510,6 +540,13 @@ export class BotRegistry extends Service {
       return {
         kind: 'deny',
         reason: `This bot grants only ${(owner.tools ?? []).join(', ')}, plus its reporting tools.`,
+      }
+    }
+    if (owner !== undefined && this.guardedTools.includes(exec.name)) {
+      const command = shellCommand(exec.arguments)
+      const pattern = command === undefined ? undefined : blockedCommand(owner.blockedCommands, command)
+      if (pattern !== undefined) {
+        return { kind: 'deny', reason: `This bot blocks shell commands matching /${pattern}/i.` }
       }
     }
     if (!this.enforceApprovals) return await next()
@@ -749,6 +786,7 @@ export class BotRegistry extends Service {
           preset: { type: 'string', description: 'Optional worker agent preset id. Omit to use the deployment default.' },
           tools: { type: 'array', items: { type: 'string' }, description: 'Optional tool names its workers may call. Omit to allow every tool.' },
           hard_floor: { type: 'array', items: { type: 'string' }, description: 'Optional action names a person must perform; the bot may never request them.' },
+          blocked_commands: { type: 'array', items: { type: 'string' }, description: 'Optional case-insensitive regular expressions that deny shell commands matching them.' },
         },
         output: {
           schema: {
@@ -771,6 +809,7 @@ export class BotRegistry extends Service {
             ...(args.preset === undefined ? {} : { preset: args.preset }),
             ...(args.tools === undefined ? {} : { tools: args.tools }),
             ...(args.hard_floor === undefined ? {} : { hardFloor: args.hard_floor }),
+            ...(args.blocked_commands === undefined ? {} : { blockedCommands: args.blocked_commands }),
             routerSession: exec.agent.session.id,
           })
           return { botId: bot.id, name: bot.name, workspace: bot.workspace }
