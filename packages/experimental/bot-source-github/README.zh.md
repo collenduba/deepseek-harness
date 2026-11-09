@@ -29,7 +29,7 @@ kind: "package-reference"
   config:
     bot: reviewer
     repository: owner/name
-    query: 'is:issue is:open'
+    query: ''
     pollSeconds: 60
     mode: observe
     target: issues
@@ -39,7 +39,7 @@ kind: "package-reference"
 |---|---|---|
 | `bot` | 必填 | 接收工单的 Bot 名称。 |
 | `repository` | 必填 | `owner/name` 形式的仓库。 |
-| `query` | `is:issue is:open` | 选择观察哪些 issue 的 `gh` 搜索查询。 |
+| `query` | 空 | `gh` 搜索查询；空表示列出所有开放 issue 或拉取请求。 |
 | `pollSeconds` | `60` | 轮询间隔秒数，至少 15。 |
 | `ghCommand` | `gh` | 可执行文件名或绝对路径。 |
 | `timeoutMs` | `30000` | 单次 `gh` 调用时限。 |

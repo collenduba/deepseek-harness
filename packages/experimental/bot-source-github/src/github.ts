@@ -224,6 +224,12 @@ export function ticketInstruction(repository: string, issue: Pick<GithubIssue, '
   ].join('\n')
 }
 
+/** The `--search` arguments for one query; an empty query lists every open item. */
+export function searchArgs(query: string): string[] {
+  const trimmed = query.trim()
+  return trimmed === '' ? [] : ['--search', trimmed]
+}
+
 /** The non-interactive, scrubbed environment every `gh` child receives. */
 const GH_ENV = {
   GH_PROMPT_DISABLED: '1',
@@ -249,7 +255,7 @@ export async function listPullRequests(
     'pr', 'list',
     '--repo', options.repository,
     '--state', 'open',
-    '--search', options.query,
+    ...searchArgs(options.query),
     '--json', 'number,title,body,url,updatedAt,author,headRefOid,baseRefName,isDraft',
     '--limit', '30',
   ], {
@@ -312,7 +318,7 @@ export async function listIssues(options: PollOptions, signal: AbortSignal): Pro
     'issue', 'list',
     '--repo', options.repository,
     '--state', 'open',
-    '--search', options.query,
+    ...searchArgs(options.query),
     '--json', 'number,title,body,url,updatedAt,author',
     '--limit', '30',
   ], {
