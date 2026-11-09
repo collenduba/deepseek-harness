@@ -47,7 +47,7 @@ dsh plugin --profile web add @deepseek-ai/dsh-bot-bundle
 
 #### KV Cache 影响
 
-bundle 自身不增加请求内容。为会话选择 `bot-worker` 会建立不同的工具列表，在该会话首次请求时使其缓存前缀失效一次；此后工具列表保持不变。
+bundle 自身不增加请求内容。为会话选择 `bot-worker` 或 `bot-reviewer` 会建立不同的工具列表，在该会话首次请求时使其缓存前缀失效一次；此后工具列表保持不变。
 
 ## 已知限制与延期工作
 
@@ -56,7 +56,7 @@ bundle 自身不增加请求内容。为会话选择 `bot-worker` 会建立不�
 - preset 可选但不强制：`bot_create` 绑定它运行所在的会话，因此路由 preset 是约定而不是门禁。
 - 还没有禁止等待的守卫；路由仍可能运行阻塞的 shell 命令。
 - 执行 preset 按设计省略 Web、子智能体、调度和展示工具；部署需要时在派生 preset 中加回。
-- 审阅 preset 省略了技能工具，因此无法加载仓库的审阅技能；它的 shell 也不是只读的：写入防护属于 Bot 的工具白名单与部署的沙箱策略。
+- 审阅 preset 刻意省略技能工具以保持工具列表精简，因此无法加载仓库的审阅技能；它的 shell 也不是只读的：写入防护属于 Bot 的工具白名单与部署的沙箱策略。
 - GitHub 来源以禁用状态插入：需要先配置 `bot` 与 `repository` 才能运行，`target` 决定观察 issue 还是拉取请求修订。
 
 <a id="dev-note"></a>
