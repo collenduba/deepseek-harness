@@ -51,6 +51,8 @@ export interface BotRecord {
   readonly preset?: string | undefined
   /** Tool names worker Sessions may call; absent means every tool. */
   readonly tools?: readonly string[] | undefined
+  /** Action names a person must perform; the bot may never request them. */
+  readonly hardFloor?: readonly string[] | undefined
   /** Whether new tickets are accepted. */
   readonly status: BotStatus
   /** ISO-8601 creation time. */
@@ -169,7 +171,9 @@ export interface CreateBotInput {
   /** Optional worker Agent preset. */
   readonly preset?: string
   /** Optional tool allowlist for worker Sessions. */
-  readonly tools?: readonly string[] | undefined
+  readonly tools?: readonly string[]
+  /** Optional actions a person must perform. */
+  readonly hardFloor?: readonly string[] | undefined
 }
 
 /** Input accepted by {@link BotRegistry.openTicket}. */

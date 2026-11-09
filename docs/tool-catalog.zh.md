@@ -612,6 +612,13 @@ Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/
       "items": {
         "type": "string"
       }
+    },
+    "hard_floor": {
+      "type": "array",
+      "description": "Optional action names a person must perform; the bot may never request them.",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "required": [

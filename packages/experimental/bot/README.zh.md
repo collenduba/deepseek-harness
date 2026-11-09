@@ -31,7 +31,7 @@ kind: "package-reference"
 
 | 工具 | 用途 |
 |---|---|
-| `bot_create` | 把当前会话绑定为 Bot 的路由会话，并保存名字、职责、工作区，以及可选的 preset 与工具白名单。 |
+| `bot_create` | 把当前会话绑定为 Bot 的路由会话，并保存名字、职责、工作区，以及可选的 preset、工具白名单与硬性底线动作。 |
 | `bot_list` | 列出部署中的每个 Bot 及其未结束工单数。 |
 | `bot_open_ticket` | 给 Bot 一条具体指令，由执行会话运行。 |
 | `bot_report` | 仅由工单的执行会话调用：记录 `ready`、`waiting`、`blocked` 或 `failed` 和一行摘要。 |
@@ -44,11 +44,11 @@ kind: "package-reference"
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
-服务打开一个 `bot` 域，版本 6，包含五张表。版本 1 到版本 5 的存储原样加载。
+服务打开一个 `bot` 域，版本 7，包含五张表。版本 1 到版本 6 的存储原样加载。
 
 | 表 | 键 | 保存 |
 |---|---|---|
-| `bots` | `BotId` | 名字、职责、工作区、路由会话、可选的执行 preset 与工具白名单、状态、时间戳 |
+| `bots` | `BotId` | 名字、职责、工作区、路由会话、可选的执行 preset、工具白名单与硬性底线动作、状态、时间戳 |
 | `tickets` | `TicketId` | 标题、指令、阶段、路由会话、执行会话、摘要、时间戳 |
 | `memories` | `BotMemoryId` | Bot、文本、创建时间，以及写下它的工单（若有） |
 | `approvals` | `BotApprovalId` | Bot、工单、动作、确切载荷、SHA-256 摘要、状态、决定备注 |
@@ -56,7 +56,7 @@ kind: "package-reference"
 
 工单从 `queued` 进入 `working`，再到 `waiting` 或 `ready`，也可能进入 `blocked` 和 `failed`。启动失败会保留工单并标记为 `failed`，附上错误信息，面板可以看到发生了什么，而不是丢掉请求。
 
-`bot_open_ticket` 通过 `ctx.agents.create` 创建一个普通根会话作为执行者：它以 Bot 的工作区为工作目录，挂载到该工作区，标题为 `<bot>: <ticket>`，并收到一条指令消息。执行者不是子智能体；它比创建者活得久，并出现在侧栏。当它调用 `bot_report` 时，服务校验调用者是工单的执行会话，写入阶段和摘要，并在路由会话在线时发送一条通知。执行者的指令还会带上 Bot 的笔记（最新在前），位于“Known context for this bot”之下。Bot 指定工具白名单时，执行者只看到这些工具可调用，`tools/pre-execute` 门禁会拒绝其他工具；`bot_report`、`bot_remember`、`bot_request_approval` 与 `bot_handoff` 始终可用。需要决定的执行者调用 `bot_request_approval`，服务保存确切载荷及其 SHA-256 摘要并通知对话；`bot_decide_approval` 把决定记录到该载荷上，并把结果发回执行会话。默认这是建议性协议；开启 `enforceApprovals` 后，`tools/pre-execute` 会拒绝工单执行者中未被批准覆盖的受保护工具：只有针对该工单、载荷与确切 shell 命令相同的已批准请求才能放行，拒绝理由会提示先请求批准再重试。执行者也可以调用 `bot_handoff`：在另一个活跃 Bot 上开工单，记录 `parentTicket` 与 `parentBotName`，并告知新执行者来源工单。
+`bot_open_ticket` 通过 `ctx.agents.create` 创建一个普通根会话作为执行者：它以 Bot 的工作区为工作目录，挂载到该工作区，标题为 `<bot>: <ticket>`，并收到一条指令消息。执行者不是子智能体；它比创建者活得久，并出现在侧栏。当它调用 `bot_report` 时，服务校验调用者是工单的执行会话，写入阶段和摘要，并在路由会话在线时发送一条通知。执行者的指令还会带上 Bot 的笔记（最新在前），位于“Known context for this bot”之下。Bot 指定工具白名单时，执行者只看到这些工具可调用，`tools/pre-execute` 门禁会拒绝其他工具；`bot_report`、`bot_remember`、`bot_request_approval` 与 `bot_handoff` 始终可用。需要决定的执行者调用 `bot_request_approval`，服务保存确切载荷及其 SHA-256 摘要并通知对话；`bot_decide_approval` 把决定记录到该载荷上，并把结果发回执行会话。默认这是建议性协议；开启 `enforceApprovals` 后，`tools/pre-execute` 会拒绝工单执行者中未被批准覆盖的受保护工具：只有针对该工单、载荷与确切 shell 命令相同的已批准请求才能放行，拒绝理由会提示先请求批准再重试。Bot 的 `hardFloor` 动作在请求时即被拒绝，之后也不能批准：必须由人执行。执行者也可以调用 `bot_handoff`：在另一个活跃 Bot 上开工单，记录 `parentTicket` 与 `parentBotName`，并告知新执行者来源工单。
 
 <a id="model-experience"></a>
 ## 模型体验
@@ -81,6 +81,7 @@ schema 在挂载期间保持静态。工单结果追加到其对话而不重写�
 
 - 笔记是无上限的纯文本：指令会随笔记增长，目前没有遗忘策略。
 - 白名单之外的工具在被调用时拒绝，但模型仍然会在工具目录里看到它，只能从拒绝理由得知限制。
+- 硬性底线按动作字符串精确匹配；请求之后修改底线会让该请求停留在待处理且无法批准，直到操作者拒绝。
 - 门禁只覆盖受保护工具的 `command` 参数。其他有后果的工具仍靠协议约束，除非加入 `guardedTools` 并提供可比对的载荷；同一批准可重复用于相同命令。
 - 只有执行会话在线时决定才会送达；否则记录已决定，执行者在下一轮才会知道。
 - 安静时段使用 Host 本地时钟；没有按用户划分的时区，Host 停止时不投递任何内容。
