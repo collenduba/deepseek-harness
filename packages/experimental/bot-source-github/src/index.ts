@@ -11,6 +11,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-bot'
 import z from '@deepseek-ai/schemastery'
 import { admitted, candidateOf, commentIssue, freshIssues, listIssues, reportComment, ticketInstruction } from './github.ts'
+import type { GithubIssue } from './github.ts'
 import type { PollOptions } from './github.ts'
 import { sourceDomainSpec } from './spec.ts'
 import type { CandidateId, SourceCandidate, SourceKey } from './spec.ts'
@@ -99,6 +100,7 @@ async function publishReports(
   config: Config,
   candidates: KvTable<CandidateId, SourceCandidate>,
   signal: AbortSignal,
+  deps: SourceDeps,
 ): Promise<void> {
   if (!config.writeBack) return
   const bot = ctx.bots.list().find(candidate => candidate.name === config.bot)
@@ -110,12 +112,32 @@ async function publishReports(
     if (ticket === undefined) continue
     if (ticket.stage !== 'ready' && ticket.stage !== 'failed' && ticket.stage !== 'blocked') continue
     try {
-      await commentIssue(pollOptions(config), candidate.number, reportComment(bot.name, ticket), signal)
-      await candidates.put(candidate.id, { ...candidate, commentedAt: new Date().toISOString() })
+      await deps.comment(candidate.number, reportComment(bot.name, ticket), signal)
+      await candidates.put(candidate.id, { ...candidate, commentedAt: deps.now().toISOString() })
     } catch (error: unknown) {
       if (signal.aborted) return
       ctx.logger.warn(`bot-source-github: comment for #${candidate.number} failed: ${error instanceof Error ? error.message : String(error)}`)
     }
+  }
+}
+
+/** The two external effects one poll needs, so a test can run the loop without `gh`. */
+export interface SourceDeps {
+  /** List the open issues the query selects. */
+  list(signal: AbortSignal): Promise<GithubIssue[]>
+  /** Comment one result on an issue. */
+  comment(issueNumber: number, body: string, signal: AbortSignal): Promise<void>
+  /** Current time, fixed by a test. */
+  now(): Date
+}
+
+/** Build the real dependencies from one deployment config. */
+function realDeps(config: Config): SourceDeps {
+  const options = pollOptions(config)
+  return {
+    list: signal => listIssues(options, signal),
+    comment: (issueNumber, body, signal) => commentIssue(options, issueNumber, body, signal),
+    now: () => new Date(),
   }
 }
 
@@ -136,19 +158,30 @@ function pollOptions(config: Config): PollOptions {
  * @param signal - effect cancellation.
  */
 async function watch(ctx: Context, config: Config, signal: AbortSignal): Promise<void> {
+  await runSource(ctx, config, signal, realDeps(config))
+}
+
+/**
+ * Run the poll loop until the signal aborts.
+ * @param ctx - context providing the bot registry and storage.
+ * @param config - one repository watch.
+ * @param signal - cancellation.
+ * @param deps - the list and comment effects, injectable for tests.
+ */
+export async function runSource(ctx: Context, config: Config, signal: AbortSignal, deps: SourceDeps): Promise<void> {
   const domain = await ctx.storageDomain.open(sourceDomainSpec)
   try {
     const cursors = domain.table('cursors')
     const candidates = domain.table('candidates')
     const key = config.repository as SourceKey
     if (cursors.get(key) === undefined) {
-      const existing = await listIssues(pollOptions(config), signal)
+      const existing = await deps.list(signal)
       const seed = config.backlog === 'open' ? [] : existing.map(issue => String(issue.number))
       await cursors.put(key, { seen: seed.slice(0, config.maxSeen) })
     }
     while (!isAborted(signal)) {
       try {
-        const issues = await listIssues(pollOptions(config), signal)
+        const issues = await deps.list(signal)
         const current = cursors.get(key) ?? { seen: [] }
         const fresh = freshIssues(current.seen, issues)
         if (fresh.length > 0) {
@@ -157,7 +190,7 @@ async function watch(ctx: Context, config: Config, signal: AbortSignal): Promise
             : undefined
           if (config.mode === 'auto' && bot === undefined) throw new Error(`no bot named '${config.bot}'`)
           for (const issue of fresh) {
-            const candidate = candidateOf(config.repository, issue, new Date().toISOString())
+            const candidate = candidateOf(config.repository, issue, deps.now().toISOString())
             if (!admitted(issue.author.login, config.allowedAuthors)) {
               await candidates.put(candidate.id, { ...candidate, state: 'filtered' })
               ctx.logger.info(`bot-source-github: #${issue.number} is from an author outside the allowlist`)
@@ -178,7 +211,7 @@ async function watch(ctx: Context, config: Config, signal: AbortSignal): Promise
           const handled = fresh.map(issue => String(issue.number)).reverse()
           await cursors.put(key, { seen: [...handled, ...current.seen].slice(0, config.maxSeen) })
         }
-        await publishReports(ctx, config, candidates, signal)
+        await publishReports(ctx, config, candidates, signal, deps)
       } catch (error: unknown) {
         if (isAborted(signal)) break
         ctx.logger.warn(`bot-source-github: poll failed: ${error instanceof Error ? error.message : String(error)}`)
