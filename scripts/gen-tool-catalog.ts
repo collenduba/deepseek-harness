@@ -20,6 +20,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SqliteSessionQueryEngine from '@deepseek-ai/dsh-session-query-sqlite'
 import GoalService from '@deepseek-ai/dsh-goal'
 import BotRegistry from '@deepseek-ai/dsh-bot'
+import * as BotSourceGithub from '@deepseek-ai/dsh-bot-source-github'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { NativeToolExecutor } from '@deepseek-ai/dsh-tool-executor-native'
@@ -274,6 +275,36 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(AgentRegistry)
       await ctx.plugin(StagehandBrowserTools, {
         mode: 'launch', model: { modelName: 'openai/gpt-5.4-mini', apiKey: 'catalog-placeholder' },
+      })
+    },
+  },
+  {
+    pkg: '@deepseek-ai/dsh-bot-source-github',
+    dir: 'bot-source-github',
+    source: 'packages/experimental/bot-source-github/src/index.ts',
+    requires: ['ctx.tools', 'ctx.bots', 'ctx.storageDomain'],
+    writes: ['tool/call', 'tool/result', 'candidate records', 'a ticket on bot_accept_candidate'],
+    async mount(ctx) {
+      // Schema harvest never polls, comments, or opens a ticket.
+      ctx.provide('storageDomain' as string, catalogStorageDomain())
+      ctx.provide('bots' as string, {
+        list: () => [],
+        openTicket: () => Promise.reject(new Error('gen-tool-catalog: ticket creation is unavailable during schema harvest')),
+        ticketsOf: () => [],
+      })
+      await ctx.plugin(BotSourceGithub, {
+        bot: 'catalog',
+        repository: 'owner/name',
+        query: 'is:issue is:open',
+        pollSeconds: 60,
+        ghCommand: 'gh',
+        timeoutMs: 30_000,
+        backlog: 'ignore',
+        mode: 'observe',
+        writeBack: false,
+        allowedAuthors: [],
+        autostart: false,
+        maxSeen: 200,
       })
     },
   },

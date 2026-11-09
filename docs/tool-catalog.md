@@ -19,6 +19,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-plugin-market` | `plugin_market` | `ctx.tools`, `ctx.pluginMarket` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-experimental-browser-use-stagehand-native` | `stagehand_act`, `stagehand_extract`, `stagehand_navigate`, `stagehand_observe`, `stagehand_screenshot`, `stagehand_tabs` | `ctx.browserUse`, `ctx.agents`, `ctx.tools`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | - |
+| `@deepseek-ai/dsh-bot-source-github` | `bot_accept_candidate`, `bot_candidates` | `ctx.tools`, `ctx.bots`, `ctx.storageDomain` | `tool/call`, `tool/result`, `candidate records`, `a ticket on bot_accept_candidate` | - | - |
 | `@deepseek-ai/dsh-bot` | `bot_archive`, `bot_create`, `bot_decide_approval`, `bot_handoff`, `bot_list`, `bot_open_ticket`, `bot_remember`, `bot_report`, `bot_request_approval` | `ctx.tools`, `ctx.bots`, `ctx.storageDomain`, `ctx.agents`, `ctx.sessionProjections`, `ctx.workspaceRegistry`, `ctx.sessionTitle`, `ctx.agentDefaultModel` | `tool/call`, `tool/result`, `bot and ticket records`, `a worker Session on bot_open_ticket` | - | - |
 | `@deepseek-ai/dsh-action-cards` | `propose_action` | `ctx.tools`, `ctx.agents`, `ctx.sessionProjections`, `ctx.remoteAccess` | `tool/call`, `tool/result`, `plugin:action-cards/decision`, `user/message` | - | Declared only to an Agent that loaded the skill of a registered card kind; the kind packages register their actions, and the Personalized recommendations bundle supplies the shipped kinds. |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userQuestions` | `tool/call`, `tool/result after an answer or timeout`, `late user/message` | - | ask_user_question keeps the original blocking behavior by default; set `mode: timed` to opt into a foreground timeout and pending result while the question remains answerable. In timed mode, `timeout: -1` keeps that call blocking indefinitely. |
@@ -498,6 +499,58 @@ List, create, select, or close a Stagehand browser tab.
 ```
 
 Source: [`packages/experimental/browser-use-stagehand-native/src/index.ts`](../packages/experimental/browser-use-stagehand-native/src/index.ts)
+
+<a id="deepseek-aidsh-bot-source-github"></a>
+
+## `@deepseek-ai/dsh-bot-source-github`
+
+### `bot_accept_candidate`
+
+Promote one would-open GitHub candidate into a ticket on this source's bot.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "number": {
+      "type": "number",
+      "description": "Issue number of the candidate."
+    }
+  },
+  "required": [
+    "number"
+  ]
+}
+```
+
+Source: [`packages/experimental/bot-source-github/src/index.ts`](../packages/experimental/bot-source-github/src/index.ts)
+
+### `bot_candidates`
+
+List GitHub issue candidates this source considered, newest first, with their state: would-open, opened, or filtered.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "state": {
+      "type": "string",
+      "description": "Optional state filter.",
+      "enum": [
+        "would-open",
+        "opened",
+        "filtered"
+      ]
+    },
+    "limit": {
+      "type": "number",
+      "description": "Maximum rows, default 20."
+    }
+  }
+}
+```
+
+Source: [`packages/experimental/bot-source-github/src/index.ts`](../packages/experimental/bot-source-github/src/index.ts)
 
 <a id="deepseek-aidsh-bot"></a>
 

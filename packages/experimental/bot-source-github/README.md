@@ -46,6 +46,7 @@ Mount the plugin with a bot and a repository. The shipped `@deepseek-ai/dsh-bot-
 | `mode` | `observe` | `observe` records a candidate per new issue and opens nothing; `auto` opens the ticket. |
 | `writeBack` | `false` | Comment each finished ticket result on its issue, once. |
 | `allowedAuthors` | `[]` | Logins allowed to open work; empty admits everyone. Others are recorded `filtered` and never open a ticket. |
+| `autostart` | `true` | Start the poll loop on mount. Set `false` to register the tools and drive the exported `runSource` yourself. |
 | `maxSeen` | `200` | Handled issue numbers remembered per repository. |
 
 ### Reviewing candidates
@@ -117,7 +118,7 @@ Each ticket starts a new Session, so the instruction establishes that Session's 
 - `observe` advances the cursor and keeps candidates only in the source's storage: there is no review tool or panel yet, and switching to `auto` later does not reopen issues observed earlier.
 - Write-back comments once and does not close the issue or reply to review threads; it also needs `gh` write permission on the repository.
 - Admission matches author logins only: organization membership, teams, and bot authors need to be listed explicitly.
-- The two review tools are not in the generated tool catalog, because the generator boots `tool-*` packages and this plugin starts a poll loop; this README is their reference.
+- With `autostart: false` nothing polls until an embedder calls `runSource`; the tools still register and read the same storage.
 - The bot must already exist when a poll finds work; a missing bot is logged and retried.
 
 <a id="dev-note"></a>

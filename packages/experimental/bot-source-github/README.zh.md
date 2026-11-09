@@ -46,6 +46,7 @@ kind: "package-reference"
 | `mode` | `observe` | `observe` 为每个新 issue 记录候选且不开工单；`auto` 开工单。 |
 | `writeBack` | `false` | 工单结束后在对应 issue 上评论一次结果。 |
 | `allowedAuthors` | `[]` | 允许发起工作的登录名；空表示所有人。其他人只会记录为 `filtered`，不会开工单。 |
+| `autostart` | `true` | 挂载时启动轮询。设为 `false` 时只注册工具，由嵌入方自行调用导出的 `runSource`。 |
 | `maxSeen` | `200` | 每个仓库记住的已处理 issue 编号数。 |
 
 ### 审阅候选
@@ -117,7 +118,7 @@ schema 在挂载期间静态；结果追加到对话。
 - `observe` 会推进游标，候选只存在来源自己的存储里：目前没有审阅工具或面板，之后切到 `auto` 也不会重开先前观察到的 issue。
 - 写回只评论一次，不会关闭 issue，也不会回复评审线程；它需要 `gh` 对该仓库的写权限。
 - 准入只匹配作者登录名：组织成员、团队与 Bot 作者都需要显式列出。
-- 两个审阅工具不在生成的工具目录里：生成器启动 `tool-*` 包，而本插件会启动轮询循环；本 README 是它们的参考。
+- `autostart: false` 时不会轮询，直到嵌入方调用 `runSource`；工具仍然注册并读取同一份存储。
 - 轮询发现工作时 Bot 必须已存在；缺少 Bot 会记录日志并重试。
 
 <a id="dev-note"></a>
