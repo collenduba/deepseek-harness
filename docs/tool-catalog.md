@@ -611,6 +611,13 @@ Create a durable bot in this conversation. The conversation becomes the bot's ro
       "items": {
         "type": "string"
       }
+    },
+    "blocked_commands": {
+      "type": "array",
+      "description": "Optional case-insensitive regular expressions that deny shell commands matching them.",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "required": [

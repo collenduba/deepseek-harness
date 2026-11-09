@@ -9,7 +9,7 @@ import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import BotRegistry, {
   approvalRecordSchema, botProjection, botRecordSchema, isQuietAt, memoryRecordSchema, parseQuietHours,
-  ticketRecordSchema, capabilityAllows, isHardFloor, requireApproval, workerInstruction,
+  ticketRecordSchema, blockedCommand, capabilityAllows, isHardFloor, requireApproval, workerInstruction,
 } from '../src/index.ts'
 import type { BotApprovalId, BotId, BotMemoryId, BotProjectionState, TicketId } from '../src/index.ts'
 
@@ -75,6 +75,19 @@ describe('bot records', () => {
     })
     expect(ctx.bots.findByRouter(ROUTER)?.id).toBe(bot.id)
     expect(ctx.bots.list().map(entry => entry.name)).toEqual(['reviewer'])
+  })
+
+  it('stores and validates blocked shell command patterns', async () => {
+    const { ctx } = await harness()
+    const bot = await ctx.bots.create({
+      name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER,
+      blockedCommands: ['\\bgit\\s+push\\b', 'gh pr merge'],
+    })
+    expect(bot.blockedCommands).toEqual(['\\bgit\\s+push\\b', 'gh pr merge'])
+    await expect(ctx.bots.create({
+      name: 'broken', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER,
+      blockedCommands: ['('],
+    })).rejects.toThrow(/not a valid regular expression/)
   })
 
   it('stores an optional worker tool allowlist', async () => {
@@ -287,6 +300,14 @@ describe('approvals', () => {
 })
 
 describe('approval gate', () => {
+  it('matches blocked command patterns case-insensitively', () => {
+    expect(blockedCommand(undefined, 'git push')).toBeUndefined()
+    expect(blockedCommand(['\\bgit\\s+push\\b'], 'git push origin main')).toBe('\\bgit\\s+push\\b')
+    expect(blockedCommand(['\\bgit\\s+push\\b'], 'GIT PUSH origin main')).toBe('\\bgit\\s+push\\b')
+    expect(blockedCommand(['\\bgit\\s+push\\b'], 'git status')).toBeUndefined()
+    expect(blockedCommand(['gh pr merge'], 'gh pr merge --squash')).toBe('gh pr merge')
+  })
+
   it('recognises hard-floor actions', () => {
     expect(isHardFloor(undefined, 'merge')).toBe(false)
     expect(isHardFloor(['merge'], 'merge')).toBe(true)
