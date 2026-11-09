@@ -31,7 +31,7 @@ Start a conversation, call `bot_create`, then `bot_open_ticket`. The strip appea
 - Registration: one `conversation.input.dock` entry with id `bot` and order 9.
 - Data: `useProjection('bot')`, the client view `@deepseek-ai/dsh-bot` registers. The component never calls the Host and holds no state.
 - Copy: the `bot` locale namespace in eight languages, registered as a plugin effect.
-- Rendering: a summary row (bot name, ticket count, needs-you count) and up to five ticket rows. Rows sort by stage — blocked, failed, ready, waiting, working, queued — then by title, and show the stage verbatim from the projection. The strip follows reports without a reload.
+- Rendering: a summary row (bot name, ticket count, needs-you count) and up to five ticket rows. Rows sort by stage — blocked, failed, ready, waiting, working, queued — then by title, and show the stage verbatim from the projection. A row whose ticket carries a `workerSession` is a button that opens it through `ctx.uiWorkspace`; a row without one is plain text. The strip follows reports without a reload.
 
 <a id="model-experience"></a>
 ## Model Experience
@@ -46,7 +46,7 @@ None; the package never assembles or sends provider requests.
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- The list stops at five rows and offers no expand, detail view, or link to a worker Session.
+- The list stops at five rows and offers no expand or detail view; opening a worker Session is the only action.
 - It only appears in a conversation whose own Session recorded the bot tools, because the projection is Session-scoped.
 - Copy is a fixed three-label strip; stage names are not shown per ticket.
 

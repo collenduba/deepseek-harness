@@ -5,6 +5,8 @@
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the Conversation service and input-dock slot.
@@ -13,6 +15,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the Session standard useProjection seat.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+// Type-only: pulls the Workspace service that opens a Session by id.
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 // Type-only: the `bot` SessionProjectionMap key merge (single source, the domain's pure outlet).
 import type {} from '@deepseek-ai/dsh-bot'
 import { BotDock } from './BotDock.tsx'
@@ -21,7 +25,7 @@ import { de, en, es, fr, ja, pt, ru, zh, type BotKey } from './locales.ts'
 const NS = 'bot'
 
 /** Required services for the dock entry and its copy. */
-export const inject = ['slots', 'locale', 'uiConversation']
+export const inject = ['slots', 'locale', 'uiConversation', 'uiWorkspace']
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -42,5 +46,8 @@ export function apply(ctx: ClientContext): void {
     id: 'bot',
     order: 9,
     locale: NS,
+    inject: () => ({
+      openSession: (sessionId: string) => { ctx.uiWorkspace.openSession(brandString<SessionId>(sessionId)) },
+    }),
   }, BotDock))
 }

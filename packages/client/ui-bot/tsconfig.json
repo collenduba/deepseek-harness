@@ -33,6 +33,9 @@
       "path": "../../api/session-controller/tsconfig.client.json"
     },
     {
+      "path": "../ui-workspace"
+    },
+    {
       "path": "../../experimental/bot"
     }
   ]
