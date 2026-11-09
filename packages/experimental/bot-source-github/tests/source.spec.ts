@@ -11,9 +11,10 @@ import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import type { GithubIssue } from '../src/github.ts'
-import { runSource } from '../src/index.ts'
+import { acceptCandidate, candidatesFor, runSource } from '../src/index.ts'
 import type { Config } from '../src/index.ts'
 import { sourceDomainSpec } from '../src/spec.ts'
+import type { CandidateId } from '../src/spec.ts'
 
 const ROUTER = brandString<SessionId>('router-1')
 
@@ -106,17 +107,22 @@ async function bench(options: {
     now: () => new Date('2026-11-09T01:00:00Z'),
   }
 
+  const domain = await facility.open(sourceDomainSpec)
+  onTestFinished(async () => { await domain.close() })
+  const state = {
+    cursors: domain.table('cursors'),
+    candidates: domain.table('candidates'),
+  }
   const run = runSource(
     ctx,
     config({ mode: options.mode, writeBack: options.writeBack ?? false, allowedAuthors: options.allowedAuthors ?? [] }),
     controller.signal,
     deps,
+    state,
   )
   await run
-  const domain = await facility.open(sourceDomainSpec)
-  onTestFinished(async () => { await domain.close() })
-  const candidates = [...domain.table('candidates').entries()].map(([, candidate]) => candidate)
-  return { opened, comments, candidates, calls }
+  const candidates = [...state.candidates.entries()].map(([, candidate]) => candidate)
+  return { opened, comments, candidates, calls, ctx, state }
 }
 
 describe('github source loop', () => {
@@ -157,5 +163,22 @@ describe('github source loop', () => {
     const filtered = candidates.find(candidate => candidate.number === 2)
     expect(filtered).toMatchObject({ state: 'filtered' })
     expect(filtered?.ticketId).toBeUndefined()
+  })
+
+  it('lists candidates and promotes a would-open one into a ticket', async () => {
+    const { ctx, state, candidates } = await bench({ issues: [issue(1), issue(2, 'bob')], mode: 'observe', allowedAuthors: ['alice'] })
+    expect(candidates).toHaveLength(2)
+    expect(candidatesFor(state, 'o/r')).toHaveLength(2)
+    expect(candidatesFor(state, 'o/r', 'would-open').map(candidate => candidate.number)).toEqual([1])
+    expect(candidatesFor(state, 'o/r', 'filtered').map(candidate => candidate.number)).toEqual([2])
+
+    const accepted = await acceptCandidate(ctx, config({ mode: 'observe' }), state, 1)
+    expect(accepted.number).toBe(1)
+    expect(accepted.ticketId).toBe('ticket-1')
+    expect(state.candidates.get(brandString<CandidateId>('candidate-o/r-1'))).toMatchObject({ state: 'opened', ticketId: 'ticket-1' })
+
+    await expect(acceptCandidate(ctx, config({ mode: 'observe' }), state, 1)).rejects.toThrow(/is opened/)
+    await expect(acceptCandidate(ctx, config({ mode: 'observe' }), state, 2)).rejects.toThrow(/is filtered/)
+    await expect(acceptCandidate(ctx, config({ mode: 'observe' }), state, 9)).rejects.toThrow(/unknown candidate/)
   })
 })

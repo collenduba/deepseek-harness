@@ -72,6 +72,7 @@ export function candidateOf(repository: string, issue: GithubIssue, createdAt: s
     repository,
     number: issue.number,
     title: issue.title,
+    body: issue.body,
     url: issue.url,
     state: 'would-open',
     createdAt,
@@ -110,7 +111,7 @@ export function reportComment(
  * @param issue - the issue the ticket is about.
  * @returns the instruction text.
  */
-export function ticketInstruction(repository: string, issue: GithubIssue): string {
+export function ticketInstruction(repository: string, issue: Pick<GithubIssue, 'number' | 'title' | 'body' | 'url'>): string {
   const body = issue.body.trim() === '' ? '(no description)' : issue.body.trim()
   return [
     `Work on ${repository} issue #${issue.number}: ${issue.title}`,

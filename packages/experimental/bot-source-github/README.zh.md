@@ -48,6 +48,20 @@ kind: "package-reference"
 | `allowedAuthors` | `[]` | 允许发起工作的登录名；空表示所有人。其他人只会记录为 `filtered`，不会开工单。 |
 | `maxSeen` | `200` | 每个仓库记住的已处理 issue 编号数。 |
 
+### 审阅候选
+
+| 工具 | 用途 |
+|---|---|
+| `bot_candidates` | 按最新 issue 优先列出本仓库候选，可按状态过滤。 |
+| `bot_accept_candidate` | 把一个 `would-open` 候选项提升为配置 Bot 上的工单。 |
+
+```text
+bot_candidates({ state: 'would-open', limit: 10 })
+bot_accept_candidate({ number: 42 })
+```
+
+只有 `would-open` 可以被提升；`filtered` 在名单改变前保持关闭，`opened` 已经有工单。
+
 Host 上的 `gh` CLI 必须已认证。本来源继承清理过的进程环境，因此 `*TOKEN*`、`*KEY*`、`*SECRET*` 与 `*PASSWORD*` 变量不会到达它；`gh` 读取自己的凭据存储。
 
 <a id="understand-the-implementation"></a>
@@ -63,6 +77,20 @@ Host 上的 `gh` CLI 必须已认证。本来源继承清理过的进程环境�
 
 <a id="model-experience"></a>
 ## 模型体验
+
+### 候选工具
+
+#### 模型看到什么
+
+`bot_candidates` 接收可选的 `state` 与 `limit`，返回 `{ candidates: [{ number, title, state, ticketId? }] }`。`bot_accept_candidate` 接收 `number`，返回 `{ ticketId, number }`。描述与 schema 在来源插件中声明。
+
+#### Token 影响
+
+每个挂载该插件的 Agent 承担两个 schema，每次调用一行短结果。
+
+#### KV Cache 影响
+
+schema 在挂载期间静态；结果追加到对话。
 
 ### 工单指令
 
@@ -89,6 +117,7 @@ Host 上的 `gh` CLI 必须已认证。本来源继承清理过的进程环境�
 - `observe` 会推进游标，候选只存在来源自己的存储里：目前没有审阅工具或面板，之后切到 `auto` 也不会重开先前观察到的 issue。
 - 写回只评论一次，不会关闭 issue，也不会回复评审线程；它需要 `gh` 对该仓库的写权限。
 - 准入只匹配作者登录名：组织成员、团队与 Bot 作者都需要显式列出。
+- 两个审阅工具不在生成的工具目录里：生成器启动 `tool-*` 包，而本插件会启动轮询循环；本 README 是它们的参考。
 - 轮询发现工作时 Bot 必须已存在；缺少 Bot 会记录日志并重试。
 
 <a id="dev-note"></a>
