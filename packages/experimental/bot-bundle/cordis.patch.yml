@@ -59,6 +59,8 @@
             name: '@deepseek-ai/dsh-tool-jobs'
           - id: tool-todo
             name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
           - id: skill-filesystem
             name: '@deepseek-ai/dsh-skill-filesystem'
           - id: tool-skill
@@ -105,3 +107,5 @@
             name: '@deepseek-ai/dsh-tool-working-directory'
           - id: tool-todo
             name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
