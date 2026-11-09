@@ -47,6 +47,8 @@ kind: "package-reference"
 | `mode` | `observe` | `observe` 为每个新 issue 记录候选且不开工单；`auto` 开工单。 |
 | `target` | `issues` | `issues` 观察开放 issue；`pull-requests` 观察开放拉取请求的修订。 |
 | `includeDrafts` | `false` | 是否也审阅草稿拉取请求。 |
+| `worktrees` | `false` | 为每个拉取请求修订创建独立 git worktree 并交给工单。 |
+| `worktreeRoot` | 空 | 审阅 worktree 的父目录；空表示 Bot 工作区旁边的 `.dsh-worktrees`。 |
 | `writeBack` | `false` | 工单结束后在对应 issue 上评论一次结果。 |
 | `allowedAuthors` | `[]` | 允许发起工作的登录名；空表示所有人。其他人只会记录为 `filtered`，不会开工单。 |
 | `autostart` | `true` | 挂载时启动轮询。设为 `false` 时只注册工具，由嵌入方自行调用导出的 `runSource`。 |
@@ -75,6 +77,7 @@ Host 上的 `gh` CLI 必须已认证。本来源继承清理过的进程环境�
 - **投递。** 每个新 issue 先记录候选。`auto` 模式下打开一条标题为 `#<number> <title>` 的工单，把候选标为 `opened` 并附上工单 id，其余行为不变。`observe` 模式下只记录日志、候选保持 `would-open`。issue 按最旧优先处理，且整批记录完成后游标才前进，因此失败会在下次轮询重试整批。
 - **可测试性。** 轮询循环的列表与评论效果以参数传入，测试因此可以在没有 `gh` 进程的情况下，用真实存储覆盖观察、自动、准入与写回。
 - **拉取请求。** `target: pull-requests` 时，每个 `number@head` 组合是独立候选，因此新推送就是一次新审阅，旧修订不会被重开。默认跳过草稿，除非开启 `includeDrafts`。工单指令要求执行者为 head SHA 建立 worktree、对照 base 审阅、遵循仓库约定、运行成本低的检查、用一次 `gh pr comment` 发布摘要，并且绝不推送或合并。
+- **独立 worktree。** 开启 `worktrees` 后，来源把 `pull/<n>/head` 抓取到 `refs/dsh-review/<n>-<sha>`，在 `worktreeRoot` 下建立 detached worktree，把路径作为工单工作区传入，指令也说明执行者已在其中。审阅工单进入 `ready`、`failed` 或 `blocked` 后，下一次轮询移除 worktree 与 `refs/dsh-review` 引用，并记录 `cleanedAt`。准备过程可安全重试：失败尝试留下的注册或引用会先被清理；单个修订失败不会阻塞其他修订。
 - **准入。** 作者不在 `allowedAuthors` 中的 issue 仍会记录候选，但标记为 `filtered`，两种模式下都不会开工单。比较为大小写不敏感的登录名。
 - **写回。** 开启 `writeBack` 后，每次轮询检查本来源的候选：工单到达 `ready`、`failed` 或 `blocked` 且尚无评论回执时，在 issue 上发布一条评论并记录时间。失败的评论会记录日志并在下次轮询重试；已投递的不会重复。
 - **失败。** `gh` 调用失败或缺少 Bot 时记录日志并在下一个间隔重试；循环不会让插件 fiber 退出，释放时会中止进行中的轮询并等待循环结束。
@@ -101,7 +104,7 @@ schema 在挂载期间静态；结果追加到对话。
 
 #### 模型看到什么
 
-每个被审阅的修订一条用户消息：PR 编号、标题、URL、head SHA 与 base 分支、`git worktree add ../review-<n>-<sha>` 建立行、diff 命令、仓库约定提醒、要运行的检查，以及要求的发现格式与确切的 `gh pr comment` 命令。
+每个被审阅的修订一条用户消息：PR 编号、标题、URL、head SHA 与 base 分支、建立步骤或“运行时已把执行者放进独立检出”的说明、diff 命令、仓库约定提醒、要运行的检查，以及要求的发现格式与确切的 `gh pr comment` 命令。
 
 #### Token 影响
 

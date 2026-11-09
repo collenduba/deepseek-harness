@@ -42,11 +42,13 @@ Mount the plugin with a bot and a repository. The shipped `@deepseek-ai/dsh-bot-
 | `query` | empty | `gh` search query; empty lists every open issue or pull request. |
 | `pollSeconds` | `60` | Seconds between polls; at least 15. |
 | `ghCommand` | `gh` | Executable name or absolute path. |
-| `timeoutMs` | `30000` | Deadline for one `gh` invocation. |
+| `timeoutMs` | `30000` | Deadline for one `gh` or `git` invocation. |
 | `backlog` | `ignore` | `ignore` marks existing issues handled at startup; `open` tickets every open issue on the first poll. |
 | `mode` | `observe` | `observe` records a candidate per new issue and opens nothing; `auto` opens the ticket. |
 | `target` | `issues` | `issues` watches open issues; `pull-requests` watches open pull-request revisions. |
 | `includeDrafts` | `false` | Review draft pull requests too. |
+| `worktrees` | `false` | Create an isolated git worktree per pull-request revision and pass it to the ticket. |
+| `worktreeRoot` | empty | Parent directory for review worktrees; empty uses a sibling `.dsh-worktrees` of the bot workspace. |
 | `writeBack` | `false` | Comment each finished ticket result on its issue, once. |
 | `allowedAuthors` | `[]` | Logins allowed to open work; empty admits everyone. Others are recorded `filtered` and never open a ticket. |
 | `autostart` | `true` | Start the poll loop on mount. Set `false` to register the tools and drive the exported `runSource` yourself. |
@@ -71,10 +73,11 @@ The `gh` CLI must be authenticated on the Host. The source inherits the scrubbed
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-- **Cursor and candidates.** The `bot_source_github` domain (version 4) stores one `{ seen: string[] }` record per repository and one candidate record per new issue with a deterministic id. The first poll writes the seed; every later poll compares against it. Versions 1 through 3 load unchanged.
+- **Cursor and candidates.** The `bot_source_github` domain (version 7) stores one `{ seen: string[] }` record per repository and one candidate record per new issue or pull-request revision with a deterministic id. Versions 1 through 6 load unchanged. The first poll writes the seed; every later poll compares against it. Versions 1 through 3 load unchanged.
 - **Delivery.** Each fresh issue records a candidate. In `auto` mode the source opens one ticket titled `#<number> <title>`, marks the candidate `opened` with the ticket id, and reports as before. In `observe` mode it logs what it would have done and leaves the candidate `would-open`. Issues are handled oldest first, and the cursor advances only after the whole batch is recorded, so a failure retries the batch on the next poll.
 - **Testability.** The poll loop takes its list and comment effects as arguments, so a test runs observe, auto, admission, and write-back against real storage with no `gh` process.
 - **Pull requests.** With `target: pull-requests`, each `number@head` pair is its own candidate, so a new push is a new review and an old revision is never reopened. Drafts are skipped unless `includeDrafts` is on. The ticket instruction asks the worker to create a worktree for the head SHA, review against the base, follow the repository's conventions, run cheap checks, post one `gh pr comment` summary, and never push or merge.
+- **Isolated worktrees.** With `worktrees` on, the source fetches `pull/<n>/head` into `refs/dsh-review/<n>-<sha>`, adds a detached worktree under `worktreeRoot`, passes its path as the ticket workspace, and the instruction says the worker is already inside it. Once the review ticket reaches `ready`, `failed`, or `blocked`, the next poll removes the worktree and its `refs/dsh-review` ref, and records `cleanedAt`. Preparation is retry-safe: a leftover registration or ref from a failed attempt is cleared before the fetch, and one revision's failure does not stop the others.
 - **Admission.** An issue whose author is not in `allowedAuthors` still records a candidate, marked `filtered`, and never opens a ticket in either mode. The check is a case-insensitive login comparison.
 - **Write-back.** With `writeBack` on, every poll scans this source's candidates for tickets that reached `ready`, `failed`, or `blocked` and have no comment receipt yet, posts one comment on the issue, and records when it did. A failed comment is logged and retried on the next poll; a delivered one is never repeated.
 - **Failures.** A failed `gh` call or a missing bot is logged and retried at the next interval; the loop never exits the plugin fiber, and disposal aborts the in-flight poll and waits for the loop.
@@ -101,7 +104,7 @@ The schemas are static for the mount lifetime; a result appends to the conversat
 
 #### What the model sees
 
-One user message per reviewed revision: the PR number, title, URL, head SHA and base branch, a `git worktree add ../review-<n>-<sha>` setup line, the diff command, the repository-convention reminder, the checks to run, and the exact `gh pr comment` command with the requested finding format.
+One user message per reviewed revision: the PR number, title, URL, head SHA and base branch, either the setup steps or a statement that the runtime already placed the worker in an isolated checkout, the diff command, the repository-convention reminder, the checks to run, and the exact `gh pr comment` command with the requested finding format.
 
 #### Token effect
 

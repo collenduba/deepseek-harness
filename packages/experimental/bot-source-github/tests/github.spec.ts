@@ -1,9 +1,15 @@
+import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   admitted, candidateOf, freshIssues, freshPullRequests, parseIssues, parsePullRequests,
-  pullRequestCandidateOf, pullRequestInstruction, reportComment, searchArgs, ticketInstruction,
+  prepareReviewWorktree, pullRequestCandidateOf, pullRequestInstruction, removeReviewWorktree, reportComment,
+  searchArgs, ticketInstruction,
 } from '../src/github.ts'
-import type { GithubIssue, GithubPullRequest } from '../src/github.ts'
+import type { GithubIssue, GithubPullRequest, PollOptions } from '../src/github.ts'
 
 const issue = (number: number, over: Partial<GithubIssue> = {}): GithubIssue => ({
   number,
@@ -37,6 +43,52 @@ describe('freshIssues', () => {
 
   it('returns nothing when every number is handled', () => {
     expect(freshIssues(['1', '2'], [issue(1), issue(2)])).toEqual([])
+  })
+})
+
+describe('review worktrees', () => {
+  it('fetches a revision into a worktree and removes it with its ref, twice safely', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-wt-'))
+    try {
+      const repo = join(root, 'repo')
+      const remote = join(root, 'remote.git')
+      const workRoot = join(root, 'worktrees')
+      const run = (...args: string[]): string => execFileSync('git', args, { stdio: 'pipe' }).toString()
+      run('init', '-q', repo)
+      run('-C', repo, 'config', 'user.email', 'test@example.com')
+      run('-C', repo, 'config', 'user.name', 'Test')
+      await writeFile(join(repo, 'a.txt'), 'a\n')
+      run('-C', repo, 'add', '.')
+      run('-C', repo, 'commit', '-q', '-m', 'init')
+      run('init', '--bare', '-q', remote)
+      run('-C', repo, 'remote', 'add', 'origin', remote)
+      run('-C', repo, 'push', '-q', 'origin', 'HEAD:refs/heads/main')
+      const sha = run('-C', repo, 'rev-parse', 'HEAD').trim()
+      run('-C', remote, 'update-ref', 'refs/pull/1/head', sha)
+
+      const options: PollOptions = { repository: 'o/r', query: '', ghCommand: 'gh', timeoutMs: 30_000 }
+      const signal = new AbortController().signal
+      const path = await prepareReviewWorktree(options, {
+        repoPath: repo, root: workRoot, pullRequest: pr(1, sha), signal,
+      })
+      expect(existsSync(path)).toBe(true)
+      expect(run('-C', repo, 'show-ref', `refs/dsh-review/1-${sha.slice(0, 8)}`)).toContain(sha)
+
+      const ref = `refs/dsh-review/1-${sha.slice(0, 8)}`
+      await removeReviewWorktree(options, { repoPath: repo, path, ref, signal })
+      expect(existsSync(path)).toBe(false)
+      expect(() => run('-C', repo, 'show-ref', ref)).toThrow()
+      await expect(removeReviewWorktree(options, { repoPath: repo, path, ref, signal })).resolves.toBeUndefined()
+
+      await mkdir(path)
+      await writeFile(join(path, 'junk.txt'), 'left behind\n')
+      await expect(prepareReviewWorktree(options, {
+        repoPath: repo, root: workRoot, pullRequest: pr(1, sha), signal,
+      })).resolves.toBe(path)
+      expect(existsSync(join(path, 'junk.txt'))).toBe(false)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })
 
@@ -90,6 +142,8 @@ describe('pull requests', () => {
     expect(text).toContain('git worktree add ../review-3-abcdef12 refs/review/3-abcdef12')
     expect(text).toContain('gh pr comment 3 --repo o/r')
     expect(text).toContain('Never push, merge, force-push')
+    expect(pullRequestInstruction('o/r', pr(3, 'abcdef123456'), '/tmp/wt'))
+      .toContain('isolated checkout of this revision at /tmp/wt')
   })
 })
 
