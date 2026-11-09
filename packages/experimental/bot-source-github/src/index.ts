@@ -57,7 +57,7 @@ export interface Config {
 export const Config: z<Config> = z.object({
   bot: z.string().required().description('Name of the bot that receives the tickets.'),
   repository: z.string().pattern(/^[\w.-]+\/[\w.-]+$/).required().description('Repository to watch, in owner/name form.'),
-  query: z.string().default('is:issue is:open').description('gh search query selecting the issues to watch.'),
+  query: z.string().default('').description('gh search query; empty lists every open issue or pull request.'),
   pollSeconds: z.natural().min(15).default(60).description('Seconds between polls.'),
   ghCommand: z.string().default('gh').description('gh executable name or absolute path.'),
   timeoutMs: z.natural().min(1_000).default(30_000).description('Deadline for one gh invocation.'),

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   admitted, candidateOf, freshIssues, freshPullRequests, parseIssues, parsePullRequests,
-  pullRequestCandidateOf, pullRequestInstruction, reportComment, ticketInstruction,
+  pullRequestCandidateOf, pullRequestInstruction, reportComment, searchArgs, ticketInstruction,
 } from '../src/github.ts'
 import type { GithubIssue, GithubPullRequest } from '../src/github.ts'
 
@@ -37,6 +37,14 @@ describe('freshIssues', () => {
 
   it('returns nothing when every number is handled', () => {
     expect(freshIssues(['1', '2'], [issue(1), issue(2)])).toEqual([])
+  })
+})
+
+describe('searchArgs', () => {
+  it('omits the filter for an empty query', () => {
+    expect(searchArgs('')).toEqual([])
+    expect(searchArgs('   ')).toEqual([])
+    expect(searchArgs('is:pr is:open')).toEqual(['--search', 'is:pr is:open'])
   })
 })
 

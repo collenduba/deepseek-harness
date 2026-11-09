@@ -29,7 +29,7 @@ Mount the plugin with a bot and a repository. The shipped `@deepseek-ai/dsh-bot-
   config:
     bot: reviewer
     repository: owner/name
-    query: 'is:issue is:open'
+    query: ''
     pollSeconds: 60
     mode: observe
     target: issues
@@ -39,7 +39,7 @@ Mount the plugin with a bot and a repository. The shipped `@deepseek-ai/dsh-bot-
 |---|---|---|
 | `bot` | required | Name of the bot whose tickets this source opens. |
 | `repository` | required | Repository in `owner/name` form. |
-| `query` | `is:issue is:open` | `gh` search query selecting the issues to watch. |
+| `query` | empty | `gh` search query; empty lists every open issue or pull request. |
 | `pollSeconds` | `60` | Seconds between polls; at least 15. |
 | `ghCommand` | `gh` | Executable name or absolute path. |
 | `timeoutMs` | `30000` | Deadline for one `gh` invocation. |
