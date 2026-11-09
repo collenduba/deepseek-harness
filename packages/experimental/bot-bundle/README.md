@@ -36,6 +36,7 @@ Start a conversation with the **Bot router** preset, call `bot_create`, then pas
 |---|---|---|
 | `bot-router` | The conversation that owns bots and receives their reports. | Persona and time context; every globally registered tool remains visible. |
 | `bot-worker` | The unattended Session one ticket runs in. | File read/write, search, shell, background jobs, todo, and skills. No tool that asks a person, presents UI, changes the profile, schedules work, or reaches the web. |
+| `bot-reviewer` | The unattended Session a pull-request review runs in. | Read-only file access, search, shell, working directory, and todo. No write or edit tool, so a review cannot change the checkout. |
 
 The worker preset is deliberately narrow: a worker that holds `ask_user_question` or `present` can block a turn on input that will never arrive.
 
