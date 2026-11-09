@@ -35,21 +35,23 @@ A conversation then drives one bot:
 | `bot_list` | List every bot in the deployment with its open ticket count. |
 | `bot_open_ticket` | Give the bot one concrete instruction; a worker Session runs it. |
 | `bot_report` | Called only by the ticket's worker: record `ready`, `waiting`, `blocked`, or `failed` and one summary line. |
-| `bot_archive` | Remove a bot and its tickets; worker Sessions and their directories stay. |
+| `bot_remember` | Keep one durable note for the bot; every later worker reads it. |
+| `bot_archive` | Remove a bot, its tickets, and its notes; worker Sessions and their directories stay. |
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-The service opens one `bot` domain, version 1, with two tables.
+The service opens one `bot` domain, version 2, with three tables. Version-1 stores load unchanged.
 
 | Table | Key | Holds |
 |---|---|---|
 | `bots` | `BotId` | name, job, workspace, router Session, optional worker preset, status, timestamps |
 | `tickets` | `TicketId` | title, instruction, stage, router Session, worker Session, summary, timestamps |
+| `memories` | `BotMemoryId` | bot, text, creation time, and the ticket whose worker wrote it |
 
 A ticket moves `queued` → `working` → `waiting` or `ready`, or to `blocked` and `failed`. A launch failure keeps the ticket and marks it `failed` with the error message, so the panel can show what happened instead of losing the request.
 
-`bot_open_ticket` creates the worker through `ctx.agents.create` as an ordinary root Session: it receives the bot's workspace as its working directory, is attached to that workspace, is titled `<bot>: <ticket>`, and receives one instruction message. The worker is not a subagent; it survives its creator and appears in the sidebar. When it calls `bot_report`, the service validates that the caller is the ticket's worker Session, writes the stage and summary, and sends one notice to the router Session when that Session is live.
+`bot_open_ticket` creates the worker through `ctx.agents.create` as an ordinary root Session: it receives the bot's workspace as its working directory, is attached to that workspace, is titled `<bot>: <ticket>`, and receives one instruction message. The worker is not a subagent; it survives its creator and appears in the sidebar. When it calls `bot_report`, the service validates that the caller is the ticket's worker Session, writes the stage and summary, and sends one notice to the router Session when that Session is live. A worker's instruction also carries the bot's notes, newest first, under "Known context for this bot".
 
 <a id="model-experience"></a>
 ## Model Experience
@@ -72,7 +74,7 @@ The schemas are static for the mount lifetime. A ticket result appends to its co
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- The `bot` Session projection is registered, but no client panel consumes it yet; the bot is usable through its tools and its Session.
+- Notes are unbounded plain text: the instruction grows with every note, and there is no forgetting policy yet.
 - Event sources, observe and auto modes, approval records, memory, and capability grants are not implemented.
 - One worker runs per ticket with no concurrency limit or slot accounting.
 - A report reaches the router only while that Session is live; otherwise the ticket keeps the stage and summary.

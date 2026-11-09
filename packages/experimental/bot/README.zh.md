@@ -35,21 +35,23 @@ kind: "package-reference"
 | `bot_list` | 列出部署中的每个 Bot 及其未结束工单数。 |
 | `bot_open_ticket` | 给 Bot 一条具体指令，由执行会话运行。 |
 | `bot_report` | 仅由工单的执行会话调用：记录 `ready`、`waiting`、`blocked` 或 `failed` 和一行摘要。 |
-| `bot_archive` | 删除 Bot 及其工单；执行会话与其目录保留。 |
+| `bot_remember` | 为 Bot 保存一条持久笔记；之后每个执行者都会读取它。 |
+| `bot_archive` | 删除 Bot、其工单与笔记；执行会话与其目录保留。 |
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
-服务打开一个 `bot` 域，版本 1，包含两张表。
+服务打开一个 `bot` 域，版本 2，包含三张表。版本 1 的存储原样加载。
 
 | 表 | 键 | 保存 |
 |---|---|---|
 | `bots` | `BotId` | 名字、职责、工作区、路由会话、可选的执行 preset、状态、时间戳 |
 | `tickets` | `TicketId` | 标题、指令、阶段、路由会话、执行会话、摘要、时间戳 |
+| `memories` | `BotMemoryId` | Bot、文本、创建时间，以及写下它的工单（若有） |
 
 工单从 `queued` 进入 `working`，再到 `waiting` 或 `ready`，也可能进入 `blocked` 和 `failed`。启动失败会保留工单并标记为 `failed`，附上错误信息，面板可以看到发生了什么，而不是丢掉请求。
 
-`bot_open_ticket` 通过 `ctx.agents.create` 创建一个普通根会话作为执行者：它以 Bot 的工作区为工作目录，挂载到该工作区，标题为 `<bot>: <ticket>`，并收到一条指令消息。执行者不是子智能体；它比创建者活得久，并出现在侧栏。当它调用 `bot_report` 时，服务校验调用者是工单的执行会话，写入阶段和摘要，并在路由会话在线时发送一条通知。
+`bot_open_ticket` 通过 `ctx.agents.create` 创建一个普通根会话作为执行者：它以 Bot 的工作区为工作目录，挂载到该工作区，标题为 `<bot>: <ticket>`，并收到一条指令消息。执行者不是子智能体；它比创建者活得久，并出现在侧栏。当它调用 `bot_report` 时，服务校验调用者是工单的执行会话，写入阶段和摘要，并在路由会话在线时发送一条通知。执行者的指令还会带上 Bot 的笔记（最新在前），位于“Known context for this bot”之下。
 
 <a id="model-experience"></a>
 ## 模型体验
@@ -72,7 +74,7 @@ schema 在挂载期间保持静态。工单结果追加到其对话而不重写�
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- `bot` 会话投影已注册，但还没有客户端面板读取它；Bot 目前通过工具和它的会话使用。
+- 笔记是无上限的纯文本：指令会随笔记增长，目前没有遗忘策略。
 - 事件来源、观察与自动模式、审批记录、记忆和能力授权尚未实现。
 - 每个工单一个执行者，没有并发上限或槽位核算。
 - 只有路由会话在线时报告才会到达；否则工单保留阶段和摘要。

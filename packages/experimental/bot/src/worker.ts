@@ -16,7 +16,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-workspace'
-import type { BotId, BotRecord, TicketId, TicketRecord, TicketStage } from './types.ts'
+import type { BotId, BotMemoryRecord, BotRecord, TicketId, TicketRecord, TicketStage } from './types.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -40,10 +40,15 @@ declare module '@deepseek-ai/dsh-llm' {
  * @param ticket - the ticket being executed.
  * @returns the worker's instruction text.
  */
-export function workerInstruction(bot: BotRecord, ticket: TicketRecord): string {
+export function workerInstruction(
+  bot: BotRecord,
+  ticket: TicketRecord,
+  memories: readonly BotMemoryRecord[] = [],
+): string {
   return [
     `You are the worker for ticket ${ticket.id} of bot "${bot.name}".`,
     `Bot job: ${bot.job}`,
+    ...memories.length === 0 ? [] : ['', 'Known context for this bot, from earlier tickets:', ...memories.map(memory => `- ${memory.text}`)],
     '',
     'Work only on this instruction:',
     ticket.instruction,
@@ -75,6 +80,7 @@ export async function launchWorker(
   ctx: Context,
   bot: BotRecord,
   ticket: TicketRecord,
+  memories: readonly BotMemoryRecord[] = [],
 ): Promise<SessionId> {
   const workspace = await ctx.workspaceRegistry.create(bot.workspace)
   const sessionId = brandString<SessionId>(`bot-worker-${randomUUID()}`)
@@ -111,7 +117,7 @@ export async function launchWorker(
     attached = true
     ctx.sessionTitle.rename(handle.agent.session, `${bot.name}: ${ticket.title}`)
     handle.agent.followup(createUserMessage({
-      content: [{ type: 'text', text: workerInstruction(bot, ticket) }],
+      content: [{ type: 'text', text: workerInstruction(bot, ticket, memories) }],
       source: {
         kind: 'bot',
         botId: bot.id,
