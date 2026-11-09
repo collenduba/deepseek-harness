@@ -63,6 +63,8 @@ export interface BotAttentionConfig {
   enforceApprovals: boolean
   /** Tool names the approval gate protects. */
   guardedTools: string[]
+  /** Hold result notices (ready, waiting) for the next digest instead of delivering them immediately. */
+  holdResults: boolean
 }
 
 /** A resolved quiet window, in local minutes since midnight. */
@@ -189,6 +191,8 @@ export class BotRegistry extends Service {
       .description('Deny guarded tools in ticket workers until an approval covers the exact command.'),
     guardedTools: z.array(z.string()).default(['bash', 'pwsh'])
       .description('Tool names the approval gate protects.'),
+    holdResults: z.boolean().default(false)
+      .description('Hold ready and waiting notices for the next digest instead of delivering them immediately.'),
   })
 
   private botsTable!: KvTable<BotId, BotRecord>
@@ -200,6 +204,7 @@ export class BotRegistry extends Service {
   private readonly digestMinutes: number
   private readonly enforceApprovals: boolean
   private readonly guardedTools: readonly string[]
+  private readonly holdResults: boolean
 
   constructor(ctx: Context, config: Partial<BotAttentionConfig> = {}) {
     super(ctx, 'bots')
@@ -207,6 +212,7 @@ export class BotRegistry extends Service {
     this.digestMinutes = config.digestMinutes ?? 5
     this.enforceApprovals = config.enforceApprovals ?? false
     this.guardedTools = config.guardedTools ?? ['bash', 'pwsh']
+    this.holdResults = config.holdResults ?? false
   }
 
   /** Open the domain and register the model tools. */
@@ -569,7 +575,7 @@ export class BotRegistry extends Service {
       createdAt: now(),
     }
     await this.approvalsTable.put(record.id, record)
-    await this.notify(ticket, `Approval ${record.id} requested for ticket "${ticket.title}": ${record.action}. Decide with bot_decide_approval.`, `Approval ${record.id}: ${record.action}`)
+    await this.notify(ticket, `Approval ${record.id} requested for ticket "${ticket.title}": ${record.action}. Decide with bot_decide_approval.`, `Approval ${record.id}: ${record.action}`, 'interrupt')
     return record
   }
 
@@ -635,11 +641,18 @@ export class BotRegistry extends Service {
 
   /** Send one ticket-stage notice to the router Session, ignoring an offline router. */
   private async notifyRouter(ticket: TicketRecord, stage: string, summary: string): Promise<void> {
-    await this.notify(ticket, `Ticket "${ticket.title}" is ${stage}: ${summary}`, summary, stage as TicketStage)
+    const severity = stage === 'blocked' || stage === 'failed' ? 'interrupt' : 'digest'
+    await this.notify(ticket, `Ticket "${ticket.title}" is ${stage}: ${summary}`, summary, severity, stage as TicketStage)
   }
 
   /** Record one router notice and deliver it now, unless quiet hours hold it for a digest. */
-  private async notify(ticket: TicketRecord, text: string, summary: string, stage?: TicketStage): Promise<void> {
+  private async notify(
+    ticket: TicketRecord,
+    text: string,
+    summary: string,
+    severity: 'interrupt' | 'digest',
+    stage?: TicketStage,
+  ): Promise<void> {
     const record: BotNoticeRecord = {
       id: brandString<BotNoticeId>(`notice-${randomUUID()}`),
       botId: ticket.botId,
@@ -647,10 +660,12 @@ export class BotRegistry extends Service {
       routerSession: ticket.routerSession,
       text,
       summary,
+      severity,
       createdAt: now(),
     }
     await this.noticesTable.put(record.id, record)
     if (isQuietAt(this.quietWindow, new Date())) return
+    if (severity === 'digest' && this.holdResults) return
     const router = this.ctx.agents.get(record.routerSession)
     if (router !== undefined) {
       try {

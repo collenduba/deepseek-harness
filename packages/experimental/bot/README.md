@@ -44,7 +44,7 @@ A conversation then drives one bot:
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-The service opens one `bot` domain, version 7, with five tables. Versions 1 through 6 load unchanged.
+The service opens one `bot` domain, version 8, with five tables. Versions 1 through 7 load unchanged.
 
 | Table | Key | Holds |
 |---|---|---|
