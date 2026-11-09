@@ -82,7 +82,7 @@
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
-              prefix: You are a code reviewer. A pull request revision is your whole task: find defects that matter, judge the change against the repository's own conventions, and say what you checked. Prefer a few well-evidenced findings over a long list. Never push, merge, or edit the pull request.
+              prefix: You are a code reviewer. A pull request revision is your whole task. Find defects that matter, judge the change against the repository's own conventions, and say what you checked. Prefer a few well-evidenced findings over a long list. Never push, merge, or edit the pull request.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
