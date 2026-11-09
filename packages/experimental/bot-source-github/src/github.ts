@@ -23,6 +23,22 @@ export const issueSchema = z.object({
 /** A validated issue record. */
 export type GithubIssue = z.infer<typeof issueSchema>
 
+/** One open pull request as `gh pr list --json` reports it. */
+export const pullRequestSchema = z.object({
+  number: z.number().int().positive(),
+  title: z.string(),
+  body: z.string().default(''),
+  url: z.string().min(1),
+  updatedAt: z.string().min(1),
+  author: z.object({ login: z.string().min(1) }),
+  headRefOid: z.string().min(1),
+  baseRefName: z.string().min(1),
+  isDraft: z.boolean().default(false),
+})
+
+/** A validated pull request record. */
+export type GithubPullRequest = z.infer<typeof pullRequestSchema>
+
 /** Executable and limits for one poll. */
 export interface PollOptions {
   /** Repository in `owner/name` form. */
@@ -44,6 +60,17 @@ export interface PollOptions {
 export function parseIssues(stdout: string): GithubIssue[] {
   const parsed: unknown = JSON.parse(stdout)
   return z.array(issueSchema).parse(parsed)
+}
+
+/**
+ * Parse one `gh pr list --json` payload.
+ * @param stdout - command output.
+ * @returns validated pull requests.
+ * @throws when the payload is not the expected array.
+ */
+export function parsePullRequests(stdout: string): GithubPullRequest[] {
+  const parsed: unknown = JSON.parse(stdout)
+  return z.array(pullRequestSchema).parse(parsed)
 }
 
 /**
@@ -75,6 +102,34 @@ export function candidateOf(repository: string, issue: GithubIssue, createdAt: s
     body: issue.body,
     url: issue.url,
     state: 'would-open',
+    kind: 'issue',
+    createdAt,
+  }
+}
+
+/**
+ * The candidate one pull request revision produces. The id names the head SHA,
+ * so a new push is a new candidate and an old one is never reopened.
+ * @param repository - `owner/name` of the repository.
+ * @param pullRequest - the pull request revision.
+ * @param createdAt - ISO-8601 time of the decision.
+ * @returns the candidate, in `would-open` state.
+ */
+export function pullRequestCandidateOf(
+  repository: string,
+  pullRequest: GithubPullRequest,
+  createdAt: string,
+): SourceCandidate {
+  return {
+    id: brandString<CandidateId>(`candidate-${repository}-pr-${pullRequest.number}-${pullRequest.headRefOid}`),
+    repository,
+    number: pullRequest.number,
+    title: pullRequest.title,
+    body: pullRequest.body,
+    url: pullRequest.url,
+    state: 'would-open',
+    kind: 'pull-request',
+    headSha: pullRequest.headRefOid,
     createdAt,
   }
 }
@@ -106,6 +161,53 @@ export function reportComment(
 }
 
 /**
+ * Pull requests whose `number@head` pair is not in the seen set, oldest first.
+ * @param seen - handled `number@head` keys.
+ * @param pullRequests - current open pull requests.
+ * @returns the unreviewed revisions.
+ */
+export function freshPullRequests(
+  seen: readonly string[],
+  pullRequests: readonly GithubPullRequest[],
+): GithubPullRequest[] {
+  const handled = new Set(seen)
+  return pullRequests
+    .filter(pullRequest => !handled.has(`${pullRequest.number}@${pullRequest.headRefOid}`))
+    .sort((left, right) => left.number - right.number)
+}
+
+/**
+ * The review instruction one PR ticket's worker receives.
+ * @param repository - `owner/name` of the repository.
+ * @param pullRequest - the pull request and head revision to review.
+ * @returns the instruction text.
+ */
+export function pullRequestInstruction(repository: string, pullRequest: GithubPullRequest): string {
+  const short = pullRequest.headRefOid.slice(0, 8)
+  const worktree = `../review-${pullRequest.number}-${short}`
+  return [
+    `Review pull request #${pullRequest.number} in ${repository}: ${pullRequest.title}`,
+    pullRequest.url,
+    `Head ${pullRequest.headRefOid} on base ${pullRequest.baseRefName}.`,
+    '',
+    'Build an isolated checkout of this revision:',
+    `  git fetch origin pull/${pullRequest.number}/head:refs/review/${pullRequest.number}-${short}`,
+    `  git worktree add ${worktree} refs/review/${pullRequest.number}-${short}`,
+    `Then change your working directory to ${worktree} before reading files.`,
+    '',
+    `Review what this revision changes: \`git diff ${pullRequest.baseRefName}...${pullRequest.headRefOid}\` and the files it touches.`,
+    'Read the repository\'s AGENTS.md or CLAUDE.md when present and judge against those conventions.',
+    'Check correctness, security, error handling, tests, and consistency with the surrounding code. Run the project\'s existing typecheck, lint, and tests when they are cheap enough.',
+    '',
+    'Post exactly one summary comment on the pull request:',
+    `  gh pr comment ${pullRequest.number} --repo ${repository} --body-file <your review file>`,
+    'List findings as `path:line — severity — problem — suggested fix`. If nothing is wrong, say so and list what you checked.',
+    'Then call bot_report with the ticket id from your instructions, stage ready, and a one-line summary.',
+    'Never push, merge, force-push, or change the pull request.',
+  ].join('\n')
+}
+
+/**
  * The instruction one ticket's worker receives.
  * @param repository - `owner/name` of the repository.
  * @param issue - the issue the ticket is about.
@@ -128,6 +230,42 @@ const GH_ENV = {
   GH_NO_UPDATE_NOTIFIER: '1',
   GH_PAGER: '',
   NO_COLOR: '1',
+}
+
+/**
+ * List the open pull requests matching the configured query.
+ * @param options - repository, query, executable, and deadline.
+ * @param includeDrafts - whether draft pull requests are reviewed too.
+ * @param signal - poll cancellation.
+ * @returns the pull requests.
+ * @throws when `gh` cannot run or exits non-zero.
+ */
+export async function listPullRequests(
+  options: PollOptions,
+  includeDrafts: boolean,
+  signal: AbortSignal,
+): Promise<GithubPullRequest[]> {
+  const result = await execa(options.ghCommand, [
+    'pr', 'list',
+    '--repo', options.repository,
+    '--state', 'open',
+    '--search', options.query,
+    '--json', 'number,title,body,url,updatedAt,author,headRefOid,baseRefName,isDraft',
+    '--limit', '30',
+  ], {
+    env: { ...scrubbedParentEnv(), ...GH_ENV },
+    extendEnv: false,
+    stdin: 'ignore',
+    reject: false,
+    timeout: options.timeoutMs,
+    cancelSignal: signal,
+    maxBuffer: 8 * 1024 * 1024,
+  })
+  if (result.isCanceled) throw signal.reason
+  if (result.timedOut) throw new Error(`gh pr list timed out after ${options.timeoutMs}ms`)
+  if (result.exitCode !== 0) throw new Error(`gh pr list failed: ${result.stderr}`)
+  const pullRequests = parsePullRequests(result.stdout)
+  return includeDrafts ? pullRequests : pullRequests.filter(pullRequest => !pullRequest.isDraft)
 }
 
 /**

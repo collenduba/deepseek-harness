@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { admitted, candidateOf, freshIssues, parseIssues, reportComment, ticketInstruction } from '../src/github.ts'
-import type { GithubIssue } from '../src/github.ts'
+import {
+  admitted, candidateOf, freshIssues, freshPullRequests, parseIssues, parsePullRequests,
+  pullRequestCandidateOf, pullRequestInstruction, reportComment, ticketInstruction,
+} from '../src/github.ts'
+import type { GithubIssue, GithubPullRequest } from '../src/github.ts'
 
 const issue = (number: number, over: Partial<GithubIssue> = {}): GithubIssue => ({
   number,
@@ -42,6 +45,43 @@ describe('admitted', () => {
     expect(admitted('alice', [])).toBe(true)
     expect(admitted('Alice', ['alice'])).toBe(true)
     expect(admitted('bob', ['alice'])).toBe(false)
+  })
+})
+
+const pr = (number: number, sha: string, over: Partial<GithubPullRequest> = {}): GithubPullRequest => ({
+  number,
+  title: `PR ${number}`,
+  body: `Body ${number}`,
+  url: `https://github.com/o/r/pull/${number}`,
+  updatedAt: '2026-11-09T00:00:00Z',
+  author: { login: 'alice' },
+  headRefOid: sha,
+  baseRefName: 'main',
+  isDraft: false,
+  ...over,
+})
+
+describe('pull requests', () => {
+  it('parses gh output and drops drafts when asked', () => {
+    const parsed = parsePullRequests(JSON.stringify([pr(1, 'a'), pr(2, 'b', { isDraft: true })]))
+    expect(parsed.map(entry => entry.number)).toEqual([1, 2])
+    expect(parsed[1]?.isDraft).toBe(true)
+  })
+
+  it('treats each head revision as its own candidate', () => {
+    const first = pullRequestCandidateOf('o/r', pr(1, 'sha-1'), '2026-11-09T00:00:00Z')
+    const second = pullRequestCandidateOf('o/r', pr(1, 'sha-2'), '2026-11-09T00:00:00Z')
+    expect(first.id).not.toBe(second.id)
+    expect(first).toMatchObject({ kind: 'pull-request', headSha: 'sha-1', number: 1 })
+    expect(freshPullRequests([`1@${first.headSha}`], [pr(1, 'sha-1'), pr(1, 'sha-2')])
+      .map(entry => entry.headRefOid)).toEqual(['sha-2'])
+  })
+
+  it('asks for an isolated worktree and one summary comment', () => {
+    const text = pullRequestInstruction('o/r', pr(3, 'abcdef123456'))
+    expect(text).toContain('git worktree add ../review-3-abcdef12 refs/review/3-abcdef12')
+    expect(text).toContain('gh pr comment 3 --repo o/r')
+    expect(text).toContain('Never push, merge, force-push')
   })
 })
 

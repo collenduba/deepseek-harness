@@ -10,7 +10,7 @@ import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import type { GithubIssue } from '../src/github.ts'
+import type { GithubIssue, GithubPullRequest } from '../src/github.ts'
 import { acceptCandidate, candidatesFor, runSource } from '../src/index.ts'
 import type { Config } from '../src/index.ts'
 import { sourceDomainSpec } from '../src/spec.ts'
@@ -39,6 +39,8 @@ const config = (over: Partial<Config> = {}): Config => ({
   writeBack: false,
   allowedAuthors: [],
   autostart: true,
+  target: 'issues',
+  includeDrafts: false,
   maxSeen: 200,
   ...over,
 })
@@ -126,6 +128,68 @@ async function bench(options: {
   return { opened, comments, candidates, calls, ctx, state }
 }
 
+/** Boot real storage plus fake bots, and drive the pull-request loop. */
+async function benchPullRequests(script: GithubPullRequest[][]) {
+  const ctx = new Context()
+  onTestFinished(async () => { await ctx.fiber.dispose() })
+  await ctx.plugin(Storage)
+  ctx.storage.backend.register('memory', new MemoryStorageBackend())
+  const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
+  ctx.provide('storageDomain' as string, facility)
+
+  const opened: string[] = []
+  const bot = {
+    id: 'bot-1', name: 'reviewer', job: 'Review', workspace: '/tmp/w', routerSession: ROUTER,
+    status: 'active', createdAt: '2026-11-09T00:00:00Z', updatedAt: '2026-11-09T00:00:00Z',
+  }
+  ctx.provide('bots' as string, {
+    list: () => [bot],
+    openTicket: (input: { title: string; instruction: string }) => {
+      opened.push(input.title)
+      return Promise.resolve({ id: `ticket-${opened.length}`, title: input.title, instruction: input.instruction, stage: 'working' })
+    },
+    ticketsOf: () => [],
+  })
+
+  const controller = new AbortController()
+  let call = 0
+  const deps = {
+    list: () => Promise.resolve([]),
+    listPullRequests: (): Promise<GithubPullRequest[]> => {
+      call += 1
+      const items = script[call - 1] ?? []
+      if (call >= script.length) controller.abort()
+      return Promise.resolve(items)
+    },
+    comment: () => Promise.resolve(),
+    now: () => new Date('2026-11-09T01:00:00Z'),
+  }
+
+  const domain = await facility.open(sourceDomainSpec)
+  onTestFinished(async () => { await domain.close() })
+  const state = { cursors: domain.table('cursors'), candidates: domain.table('candidates') }
+  await runSource(
+    ctx,
+    config({ target: 'pull-requests', mode: 'auto', pollSeconds: 0 }),
+    controller.signal,
+    deps,
+    state,
+  )
+  return { opened, candidates: [...state.candidates.entries()].map(([, candidate]) => candidate) }
+}
+
+const pullRequest = (number: number, sha: string): GithubPullRequest => ({
+  number,
+  title: `PR ${number}`,
+  body: `Body ${number}`,
+  url: `https://github.com/o/r/pull/${number}`,
+  updatedAt: '2026-11-09T00:00:00Z',
+  author: { login: 'alice' },
+  headRefOid: sha,
+  baseRefName: 'main',
+  isDraft: false,
+})
+
 describe('github source loop', () => {
   it('records a candidate per issue and opens nothing in observe mode', async () => {
     const { opened, candidates, comments } = await bench({ issues: [issue(1)], mode: 'observe' })
@@ -164,6 +228,18 @@ describe('github source loop', () => {
     const filtered = candidates.find(candidate => candidate.number === 2)
     expect(filtered).toMatchObject({ state: 'filtered' })
     expect(filtered?.ticketId).toBeUndefined()
+  })
+
+  it('reviews each pull-request head once and again after a new push', async () => {
+    const { opened, candidates } = await benchPullRequests([
+      [],
+      [pullRequest(1, 'sha-1')],
+      [pullRequest(1, 'sha-1')],
+      [pullRequest(1, 'sha-2')],
+    ])
+    expect(opened).toEqual(['Review #1 PR 1', 'Review #1 PR 1'])
+    expect(candidates.map(candidate => candidate.headSha)).toEqual(['sha-1', 'sha-2'])
+    expect(candidates.every(candidate => candidate.kind === 'pull-request')).toBe(true)
   })
 
   it('lists candidates and promotes a would-open one into a ticket', async () => {

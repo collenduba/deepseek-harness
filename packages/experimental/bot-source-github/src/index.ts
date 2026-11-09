@@ -11,8 +11,11 @@ import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the `ctx.bots` Service declaration from the bot package.
 import type {} from '@deepseek-ai/dsh-bot'
 import z from '@deepseek-ai/schemastery'
-import { admitted, candidateOf, commentIssue, freshIssues, listIssues, reportComment, ticketInstruction } from './github.ts'
-import type { GithubIssue } from './github.ts'
+import {
+  admitted, candidateOf, commentIssue, freshIssues, freshPullRequests, listIssues, listPullRequests,
+  pullRequestCandidateOf, pullRequestInstruction, reportComment, ticketInstruction,
+} from './github.ts'
+import type { GithubIssue, GithubPullRequest } from './github.ts'
 import type { PollOptions } from './github.ts'
 import { sourceDomainSpec } from './spec.ts'
 import type { CandidateId, SourceCandidate, SourceCursor, SourceKey } from './spec.ts'
@@ -43,6 +46,10 @@ export interface Config {
   allowedAuthors: string[]
   /** Start the poll loop on mount; disable to drive `runSource` yourself. */
   autostart: boolean
+  /** What to watch: open issues, or open pull-request revisions. */
+  target: 'issues' | 'pull-requests'
+  /** Review draft pull requests too. */
+  includeDrafts: boolean
   /** How many handled issue numbers one repository remembers. */
   maxSeen: number
 }
@@ -64,6 +71,10 @@ export const Config: z<Config> = z.object({
     .description('Logins allowed to open work through this source; empty admits everyone.'),
   autostart: z.boolean().default(true)
     .description('Start the poll loop on mount; disable to drive runSource yourself.'),
+  target: z.union([z.const('issues'), z.const('pull-requests')]).default('issues')
+    .description('Watch open issues or open pull-request revisions.'),
+  includeDrafts: z.boolean().default(false)
+    .description('Review draft pull requests too.'),
   maxSeen: z.natural().min(1).max(2_000).default(200).description('How many handled issue numbers one repository remembers.'),
 })
 
@@ -86,7 +97,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     cursors: domain.table('cursors'),
     candidates: domain.table('candidates'),
   }
-  if (config.autostart === false) {
+  if (!config.autostart) {
     registerTools(ctx, config, state)
     return
   }
@@ -203,6 +214,8 @@ async function publishReports(
 export interface SourceDeps {
   /** List the open issues the query selects. */
   list(signal: AbortSignal): Promise<GithubIssue[]>
+  /** List the open pull requests the query selects; required for the pull-request target. */
+  listPullRequests?(signal: AbortSignal): Promise<GithubPullRequest[]>
   /** Comment one result on an issue. */
   comment(issueNumber: number, body: string, signal: AbortSignal): Promise<void>
   /** Current time, fixed by a test. */
@@ -214,6 +227,7 @@ function realDeps(config: Config): SourceDeps {
   const options = pollOptions(config)
   return {
     list: signal => listIssues(options, signal),
+    listPullRequests: signal => listPullRequests(options, config.includeDrafts, signal),
     comment: (issueNumber, body, signal) => commentIssue(options, issueNumber, body, signal),
     now: () => new Date(),
   }
@@ -252,44 +266,85 @@ export async function runSource(
 ): Promise<void> {
   const { cursors, candidates } = state
   const key = config.repository as SourceKey
+  const pullLister = deps.listPullRequests?.bind(deps)
+  if (config.target === 'pull-requests' && pullLister === undefined) {
+    throw new Error('the pull-request target needs a pull-request lister')
+  }
   if (cursors.get(key) === undefined) {
-    const existing = await deps.list(signal)
-    const seed = config.backlog === 'open' ? [] : existing.map(issue => String(issue.number))
+    const seed = config.backlog === 'open'
+      ? []
+      : pullLister === undefined
+        ? (await deps.list(signal)).map(issue => String(issue.number))
+        : (await pullLister(signal)).map(pullRequest => `${pullRequest.number}@${pullRequest.headRefOid}`)
     await cursors.put(key, { seen: seed.slice(0, config.maxSeen) })
   }
   while (!isAborted(signal)) {
     try {
-      const issues = await deps.list(signal)
-      const current = cursors.get(key) ?? { seen: [] }
-      const fresh = freshIssues(current.seen, issues)
-      if (fresh.length > 0) {
-        const bot = config.mode === 'auto'
-          ? ctx.bots.list().find(candidate => candidate.name === config.bot)
-          : undefined
-        if (config.mode === 'auto' && bot === undefined) throw new Error(`no bot named '${config.bot}'`)
-        for (const issue of fresh) {
-          const candidate = candidateOf(config.repository, issue, deps.now().toISOString())
-          if (!admitted(issue.author.login, config.allowedAuthors)) {
-            await candidates.put(candidate.id, { ...candidate, state: 'filtered' })
-            ctx.logger.info(`bot-source-github: #${issue.number} is from an author outside the allowlist`)
-            continue
+      if (pullLister !== undefined) {
+        const pullRequests = await pullLister(signal)
+        const current = cursors.get(key) ?? { seen: [] }
+        const fresh = freshPullRequests(current.seen, pullRequests)
+        if (fresh.length > 0) {
+          const bot = config.mode === 'auto'
+            ? ctx.bots.list().find(candidate => candidate.name === config.bot)
+            : undefined
+          if (config.mode === 'auto' && bot === undefined) throw new Error(`no bot named '${config.bot}'`)
+          for (const pullRequest of fresh) {
+            const candidate = pullRequestCandidateOf(config.repository, pullRequest, deps.now().toISOString())
+            if (!admitted(pullRequest.author.login, config.allowedAuthors)) {
+              await candidates.put(candidate.id, { ...candidate, state: 'filtered' })
+              ctx.logger.info(`bot-source-github: PR #${pullRequest.number} is from an author outside the allowlist`)
+              continue
+            }
+            await candidates.put(candidate.id, candidate)
+            if (bot === undefined) {
+              ctx.logger.info(`bot-source-github: observe only, would review PR #${pullRequest.number} at ${pullRequest.headRefOid}`)
+              continue
+            }
+            const ticket = await ctx.bots.openTicket({
+              routerSession: bot.routerSession,
+              title: `Review #${pullRequest.number} ${pullRequest.title}`,
+              instruction: pullRequestInstruction(config.repository, pullRequest),
+            })
+            await candidates.put(candidate.id, { ...candidate, state: 'opened', ticketId: ticket.id })
           }
-          await candidates.put(candidate.id, candidate)
-          if (bot === undefined) {
-            ctx.logger.info(`bot-source-github: observe only, would open a ticket for #${issue.number}`)
-            continue
-          }
-          const ticket = await ctx.bots.openTicket({
-            routerSession: bot.routerSession,
-            title: `#${issue.number} ${issue.title}`,
-            instruction: ticketInstruction(config.repository, issue),
-          })
-          await candidates.put(candidate.id, { ...candidate, state: 'opened', ticketId: ticket.id })
+          const handled = fresh.map(pullRequest => `${pullRequest.number}@${pullRequest.headRefOid}`).reverse()
+          await cursors.put(key, { seen: [...handled, ...current.seen].slice(0, config.maxSeen) })
         }
-        const handled = fresh.map(issue => String(issue.number)).reverse()
-        await cursors.put(key, { seen: [...handled, ...current.seen].slice(0, config.maxSeen) })
       }
-      await publishReports(ctx, config, candidates, signal, deps)
+      if (pullLister === undefined) {
+        const issues = await deps.list(signal)
+        const current = cursors.get(key) ?? { seen: [] }
+        const fresh = freshIssues(current.seen, issues)
+        if (fresh.length > 0) {
+          const bot = config.mode === 'auto'
+            ? ctx.bots.list().find(candidate => candidate.name === config.bot)
+            : undefined
+          if (config.mode === 'auto' && bot === undefined) throw new Error(`no bot named '${config.bot}'`)
+          for (const issue of fresh) {
+            const candidate = candidateOf(config.repository, issue, deps.now().toISOString())
+            if (!admitted(issue.author.login, config.allowedAuthors)) {
+              await candidates.put(candidate.id, { ...candidate, state: 'filtered' })
+              ctx.logger.info(`bot-source-github: #${issue.number} is from an author outside the allowlist`)
+              continue
+            }
+            await candidates.put(candidate.id, candidate)
+            if (bot === undefined) {
+              ctx.logger.info(`bot-source-github: observe only, would open a ticket for #${issue.number}`)
+              continue
+            }
+            const ticket = await ctx.bots.openTicket({
+              routerSession: bot.routerSession,
+              title: `#${issue.number} ${issue.title}`,
+              instruction: ticketInstruction(config.repository, issue),
+            })
+            await candidates.put(candidate.id, { ...candidate, state: 'opened', ticketId: ticket.id })
+          }
+          const handled = fresh.map(issue => String(issue.number)).reverse()
+          await cursors.put(key, { seen: [...handled, ...current.seen].slice(0, config.maxSeen) })
+        }
+        await publishReports(ctx, config, candidates, signal, deps)
+      }
     } catch (error: unknown) {
       if (isAborted(signal)) break
       ctx.logger.warn(`bot-source-github: poll failed: ${error instanceof Error ? error.message : String(error)}`)
