@@ -38,4 +38,29 @@ describe('BotStrip', () => {
     expect(screen.getByText('工单: 3')).toBeTruthy()
     expect(screen.getByText('待处理: 2')).toBeTruthy()
   })
+
+  it('lists at most five tickets, the ones needing a person first', () => {
+    render(<BotStrip
+      view={{
+        bot: { botId: 'bot-1', name: 'reviewer', workspace: '/tmp/w' },
+        tickets: {
+          't-working': { ticketId: 't-working', title: 'Work in flight', stage: 'working' },
+          't-queued': { ticketId: 't-queued', title: 'Queued', stage: 'queued' },
+          't-blocked': { ticketId: 't-blocked', title: 'Blocked one', stage: 'blocked' },
+          't-failed': { ticketId: 't-failed', title: 'Failed one', stage: 'failed' },
+          't-ready': { ticketId: 't-ready', title: 'Ready one', stage: 'ready' },
+          't-waiting': { ticketId: 't-waiting', title: 'Waiting one', stage: 'waiting' },
+        },
+      }}
+      t={t}
+    />)
+    const rows = screen.getAllByRole('listitem')
+    expect(rows).toHaveLength(5)
+    expect(rows[0]?.textContent).toContain('Blocked one')
+    expect(rows[1]?.textContent).toContain('Failed one')
+    expect(rows[2]?.textContent).toContain('Ready one')
+    expect(rows[3]?.textContent).toContain('Waiting one')
+    expect(rows[4]?.textContent).toContain('Work in flight')
+    expect(screen.queryByText('Queued')).toBeNull()
+  })
 })

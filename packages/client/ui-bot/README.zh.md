@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-在输入框上方增加一行，显示当前对话绑定的 Bot、工单数量，以及有多少工单在等人处理。浏览器半部注册一个 `conversation.input.dock` 条目并读取 `useProjection('bot')`；没有 Bot 的对话不渲染任何内容。
+在输入框上方增加一个紧凑面板：当前对话绑定的 Bot、工单数量、待处理数量，以及最多五行工单（需要人处理的排前面）。浏览器半部注册一个 `conversation.input.dock` 条目并读取 `useProjection('bot')`；没有 Bot 的对话不渲染任何内容。
 
 ## 目录
 
@@ -31,7 +31,7 @@ kind: "package-reference"
 - 注册：一个 `conversation.input.dock` 条目，id 为 `bot`，order 为 9。
 - 数据：`useProjection('bot')`，即 `@deepseek-ai/dsh-bot` 注册的客户端视图。组件不调用 Host，也不持有状态。
 - 文案：`bot` locale 命名空间，覆盖八种语言，作为插件 effect 注册。
-- 渲染：Bot 名称、工单数量，以及等待人处理的工单数量。阶段来自投影，因此报告后无需刷新即可更新。
+- 渲染：一行汇总（Bot 名称、工单数、待处理数）和最多五行工单。行按阶段排序——blocked、failed、ready、waiting、working、queued——再按标题，阶段原样来自投影。报告后无需刷新即可更新。
 
 <a id="model-experience"></a>
 ## 模型体验

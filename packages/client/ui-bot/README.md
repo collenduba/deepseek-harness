@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Adds one line above the composer naming the bot bound to the current conversation, its ticket count, and how many tickets need a person. The browser half registers a `conversation.input.dock` entry and reads `useProjection('bot')`; a conversation with no bot renders nothing.
+Adds a compact panel above the composer: the bot bound to the current conversation, its ticket count, how many tickets need a person, and up to five ticket rows ordered with the ones that need a person first. The browser half registers a `conversation.input.dock` entry and reads `useProjection('bot')`; a conversation with no bot renders nothing.
 
 ## Table of Contents
 
@@ -31,7 +31,7 @@ Start a conversation, call `bot_create`, then `bot_open_ticket`. The strip appea
 - Registration: one `conversation.input.dock` entry with id `bot` and order 9.
 - Data: `useProjection('bot')`, the client view `@deepseek-ai/dsh-bot` registers. The component never calls the Host and holds no state.
 - Copy: the `bot` locale namespace in eight languages, registered as a plugin effect.
-- Rendering: a bot name, the ticket count, and the count of tickets that wait for a person. Stages come from the projection, so the strip follows reports without a reload.
+- Rendering: a summary row (bot name, ticket count, needs-you count) and up to five ticket rows. Rows sort by stage — blocked, failed, ready, waiting, working, queued — then by title, and show the stage verbatim from the projection. The strip follows reports without a reload.
 
 <a id="model-experience"></a>
 ## Model Experience
@@ -46,7 +46,7 @@ None; the package never assembles or sends provider requests.
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- The strip summarizes tickets; there is no ticket list, detail view, or link to a worker Session yet.
+- The list stops at five rows and offers no expand, detail view, or link to a worker Session.
 - It only appears in a conversation whose own Session recorded the bot tools, because the projection is Session-scoped.
 - Copy is a fixed three-label strip; stage names are not shown per ticket.
 
