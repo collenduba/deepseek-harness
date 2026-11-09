@@ -78,6 +78,7 @@ async function harness(config: {
   const workspaces: string[] = []
   ctx.provide('workspaceRegistry' as string, {
     create: async (path: string) => {
+      if (path.includes('missing')) throw new Error(`ENOENT: no such directory, '${path}'`)
       workspaces.push(path)
       return ({
         path,
@@ -484,6 +485,16 @@ describe('tickets', () => {
     await expect(ctx.bots.openTicket({
       routerSession: ROUTER, title: 'Bad', instruction: 'Work.', workspace: 'relative/dir',
     })).rejects.toThrow(/must be absolute/)
+  })
+
+  it('reports why a caller-supplied workspace could not be used', async () => {
+    const { ctx } = await harness()
+    await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
+    const ticket = await ctx.bots.openTicket({
+      routerSession: ROUTER, title: 'Missing', instruction: 'Work.', workspace: '/tmp/missing-dir',
+    })
+    expect(ticket.stage).toBe('failed')
+    expect(ticket.summary).toContain('ENOENT')
   })
 
   it('refuses to open a ticket when no bot is bound to the Session', async () => {
