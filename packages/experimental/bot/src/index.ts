@@ -18,6 +18,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { botProjection } from './projection.ts'
 import { botDomainSpec } from './spec.ts'
@@ -58,6 +59,10 @@ export interface BotAttentionConfig {
   quietHours: string
   /** Minutes between digests of held notices. */
   digestMinutes: number
+  /** Deny guarded tools in ticket workers until an approval covers the exact command. */
+  enforceApprovals: boolean
+  /** Tool names the approval gate protects. */
+  guardedTools: string[]
 }
 
 /** A resolved quiet window, in local minutes since midnight. */
@@ -96,6 +101,27 @@ export function isQuietAt(window: QuietWindow | undefined, at: Date): boolean {
     : minutes >= window.start || minutes < window.end
 }
 
+/**
+ * Decide whether one tool call is guarded and whether an approved command covers it.
+ * @param guardedTools - tool names the gate protects.
+ * @param approvedCommands - payloads of approved requests for this ticket.
+ * @param exec - the pending call's name and parsed arguments.
+ * @returns whether the call is guarded, its command, and whether approval covers it.
+ */
+export function requireApproval(
+  guardedTools: readonly string[],
+  approvedCommands: ReadonlySet<string>,
+  exec: { readonly name: string; readonly arguments: unknown },
+): { readonly required: boolean; readonly approved: boolean; readonly command?: string } {
+  if (!guardedTools.includes(exec.name)) return { required: false, approved: false }
+  const record = exec.arguments
+  const command = record !== null && typeof record === 'object' && !Array.isArray(record)
+    ? (record as Record<string, unknown>)['command']
+    : undefined
+  if (typeof command !== 'string') return { required: true, approved: false }
+  return { required: true, approved: approvedCommands.has(command), command }
+}
+
 /** Current time as the ISO-8601 string every stored timestamp uses. */
 function now(): string {
   return new Date().toISOString()
@@ -130,6 +156,10 @@ export class BotRegistry extends Service {
   static Config: z<BotAttentionConfig> = z.object({
     quietHours: z.string().default('').description('Local quiet hours as HH:MM-HH:MM; empty disables holding.'),
     digestMinutes: z.natural().min(1).max(720).default(5).description('Minutes between digests of held notices.'),
+    enforceApprovals: z.boolean().default(false)
+      .description('Deny guarded tools in ticket workers until an approval covers the exact command.'),
+    guardedTools: z.array(z.string()).default(['bash', 'pwsh'])
+      .description('Tool names the approval gate protects.'),
   })
 
   private botsTable!: KvTable<BotId, BotRecord>
@@ -139,11 +169,15 @@ export class BotRegistry extends Service {
   private noticesTable!: KvTable<BotNoticeId, BotNoticeRecord>
   private readonly quietWindow: QuietWindow | undefined
   private readonly digestMinutes: number
+  private readonly enforceApprovals: boolean
+  private readonly guardedTools: readonly string[]
 
   constructor(ctx: Context, config: Partial<BotAttentionConfig> = {}) {
     super(ctx, 'bots')
     this.quietWindow = parseQuietHours(config.quietHours ?? '')
     this.digestMinutes = config.digestMinutes ?? 5
+    this.enforceApprovals = config.enforceApprovals ?? false
+    this.guardedTools = config.guardedTools ?? ['bash', 'pwsh']
   }
 
   /** Open the domain and register the model tools. */
@@ -160,6 +194,10 @@ export class BotRegistry extends Service {
       return () => { clearInterval(timer) }
     }, 'bot.attention')
     await this.ctx.sessionProjections.register(botProjection)
+    this.ctx.effect(
+      () => this.ctx.on('tools/pre-execute', (exec, next) => this.guard(exec, next)),
+      'bot.approvalGate',
+    )
     this.ctx.effect(() => this.registerTools(), 'bot.tools')
   }
 
@@ -370,6 +408,26 @@ export class BotRegistry extends Service {
     }
     await this.memoriesTable.put(record.id, record)
     return record
+  }
+
+  /**
+   * The tool gate: a guarded shell command in a ticket worker needs an approved
+   * request whose payload is exactly that command.
+   */
+  private async guard(exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision> {
+    if (!this.enforceApprovals || exec.agent === undefined) return await next()
+    const ticket = this.ticketOfWorker(exec.agent.session.id)
+    if (ticket === undefined) return await next()
+    const approvals = this.approvalsOf(ticket.botId).filter(approval => String(approval.ticketId) === String(ticket.id))
+    const approved = new Set(approvals.filter(approval => approval.status === 'approved').map(approval => approval.payload))
+    const decision = requireApproval(this.guardedTools, approved, { name: exec.name, arguments: exec.arguments })
+    if (!decision.required || decision.approved) return await next()
+    return {
+      kind: 'deny',
+      reason: decision.command === undefined
+        ? `Tool ${exec.name} needs approval, but its arguments carry no command to approve.`
+        : 'This command needs approval. Call bot_request_approval with action "shell" and this exact command as the payload, wait for bot_decide_approval, then retry.',
+    }
   }
 
   /**
