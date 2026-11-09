@@ -177,6 +177,19 @@ function shellCommand(args: unknown): string | undefined {
   return typeof command === 'string' ? command : undefined
 }
 
+/**
+ * Require one absolute directory path.
+ * @param value - the path to validate.
+ * @param field - field name for the failure message.
+ * @returns the path.
+ * @throws TypeError when the path is not absolute.
+ */
+function requireAbsolute(value: string, field: string): string {
+  const text = requireText(value, field)
+  if (!isAbsolute(text)) throw new TypeError(`${field} must be absolute, got '${text}'`)
+  return text
+}
+
 /** Current time as the ISO-8601 string every stored timestamp uses. */
 function now(): string {
   return new Date().toISOString()
@@ -296,8 +309,7 @@ export class BotRegistry extends Service {
   async create(input: CreateBotInput): Promise<BotRecord> {
     const name = requireText(input.name, 'name')
     const job = requireText(input.job, 'job')
-    const workspace = requireText(input.workspace, 'workspace')
-    if (!isAbsolute(workspace)) throw new TypeError(`workspace must be absolute, got '${workspace}'`)
+    const workspace = requireAbsolute(input.workspace, 'workspace')
     const preset = input.preset === undefined ? undefined : requireText(input.preset, 'preset')
     const tools = input.tools === undefined ? undefined : input.tools.map(tool => requireText(tool, 'tools'))
     const hardFloor = input.hardFloor === undefined ? undefined : input.hardFloor.map(action => requireText(action, 'hardFloor'))
@@ -359,7 +371,7 @@ export class BotRegistry extends Service {
    * A failed launch keeps the ticket and marks it `failed`; the caller still
    * receives the failure, and the panel can show what happened.
    *
-   * @param input - the owning Session, a title, and the instruction.
+   * @param input - the owning Session, a title, the instruction, and an optional workspace.
    * @returns the launched ticket.
    */
   async openTicket(input: OpenTicketInput): Promise<TicketRecord> {
@@ -404,10 +416,7 @@ export class BotRegistry extends Service {
   ): Promise<TicketRecord> {
     const title = requireText(titleInput, 'title')
     const instruction = requireText(instructionInput, 'instruction')
-    const workspace = workspaceInput === undefined ? undefined : requireText(workspaceInput, 'workspace')
-    if (workspace !== undefined && !isAbsolute(workspace)) {
-      throw new Error(`ticket workspace must be an absolute path: ${workspace}`)
-    }
+    const workspace = workspaceInput === undefined ? undefined : requireAbsolute(workspaceInput, 'workspace')
     const timestamp = now()
     const ticket: TicketRecord = {
       id: brandString<TicketId>(`ticket-${randomUUID()}`),

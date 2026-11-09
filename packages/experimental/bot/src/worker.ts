@@ -84,7 +84,7 @@ function reportRollbackFailure(ctx: Context, subject: string, error: unknown): v
  * half-created worker behind.
  *
  * @param ctx - runtime context owning the resulting Agent and its services.
- * @param bot - the bot whose workspace and preset the worker uses.
+ * @param bot - the bot whose preset and default workspace the worker uses.
  * @param ticket - the ticket the worker executes.
  * @returns the new worker Session id.
  */

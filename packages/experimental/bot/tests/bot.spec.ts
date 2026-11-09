@@ -483,7 +483,7 @@ describe('tickets', () => {
     expect(workspaces.at(-1)).toBe('/tmp/ticket-work')
     await expect(ctx.bots.openTicket({
       routerSession: ROUTER, title: 'Bad', instruction: 'Work.', workspace: 'relative/dir',
-    })).rejects.toThrow(/absolute path/)
+    })).rejects.toThrow(/must be absolute/)
   })
 
   it('refuses to open a ticket when no bot is bound to the Session', async () => {

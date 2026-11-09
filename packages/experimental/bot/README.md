@@ -65,7 +65,7 @@ A ticket moves `queued` → `working` → `waiting` or `ready`, or to `blocked` 
 
 #### What the model sees
 
-The four tools are declared together on `ctx.tools`: `bot_create` takes `name`, `job`, `workspace`, and an optional `preset`; `bot_list` takes no parameters; `bot_open_ticket` takes `title` and `instruction`; `bot_report` takes `ticket_id`, a `stage` from `waiting`, `ready`, `blocked`, and `failed`, and a one-line `summary`. Each result is a small JSON object the model can read without parsing prose.
+The four tools are declared together on `ctx.tools`: `bot_create` takes `name`, `job`, `workspace`, and an optional `preset`; `bot_list` takes no parameters; `bot_open_ticket` takes `title`, `instruction`, and an optional `workspace`; `bot_report` takes `ticket_id`, a `stage` from `waiting`, `ready`, `blocked`, and `failed`, and a one-line `summary`. Each result is a small JSON object the model can read without parsing prose.
 
 #### Token effect
 
