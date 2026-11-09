@@ -39,7 +39,7 @@ export type SourceCandidate = z.infer<typeof candidateSchema>
 
 /** The source's own domain, version 4: candidates can be filtered by author. */
 export const sourceDomainSpec = defineDomain({
-  name: 'bot-source-github',
+  name: 'bot_source_github',
   version: 4,
   compatibleVersions: [1, 2, 3],
   tables: {
