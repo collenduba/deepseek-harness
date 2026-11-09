@@ -9,8 +9,8 @@
   en: 6cc2cd9ced70bb09
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: 30ddb8f8e89a0e68
-  zh: 68df3076d63526ac
+  en: c088d7bd5a317639
+  zh: 208a4df363528f6c
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762
@@ -65,6 +65,9 @@
 /tool-schema-catalog/deepseek-ai-dsh-bot/bot-create:
   en: e549b56c1c95db54
   zh: 6ff98d9afad48533
+/tool-schema-catalog/deepseek-ai-dsh-bot/bot-decide-approval:
+  en: 1140362d208f0b51
+  zh: f5414ac4e3b546d8
 /tool-schema-catalog/deepseek-ai-dsh-bot/bot-list:
   en: 6379468f84b20a83
   zh: 51d1295096210629
@@ -75,8 +78,11 @@
   en: 8b8a1a4ae9249f5b
   zh: 789eed612cd544b1
 /tool-schema-catalog/deepseek-ai-dsh-bot/bot-report:
-  en: 7abe539f6336d352
+  en: fe165f47133be80d
   zh: bc145595d74c659b
+/tool-schema-catalog/deepseek-ai-dsh-bot/bot-request-approval:
+  en: 1036ac2f6783554f
+  zh: 0e221886dccbc11e
 /tool-schema-catalog/deepseek-ai-dsh-action-cards:
   en: 60c9df6ffda98a1d
   zh: 60c9df6ffda98a1d

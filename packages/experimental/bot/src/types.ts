@@ -16,6 +16,9 @@ export type TicketId = Branded<'TicketId'>
 /** Identifies one remembered fact. */
 export type BotMemoryId = Branded<'BotMemoryId'>
 
+/** Identifies one approval request. */
+export type BotApprovalId = Branded<'BotApprovalId'>
+
 /**
  * Where a ticket stands. `queued` and `working` need no person; `waiting`
  * waits for a next input; `ready`, `blocked`, and `failed` all need a person.
@@ -87,6 +90,33 @@ export interface BotMemoryRecord {
   readonly createdAt: string
   /** The ticket whose worker wrote it, when a worker did. */
   readonly sourceTicket?: TicketId | undefined
+}
+
+/** Where an approval request stands. */
+export type BotApprovalStatus = 'pending' | 'approved' | 'denied'
+
+/** One payload-bound approval a worker requested and a person decided. */
+export interface BotApprovalRecord {
+  /** Stable identity, generated when the request is made. */
+  readonly id: BotApprovalId
+  /** The bot the requesting ticket belongs to. */
+  readonly botId: BotId
+  /** The ticket whose worker asked. */
+  readonly ticketId: TicketId
+  /** Short name of the action, such as merge or post. */
+  readonly action: string
+  /** The exact payload the decision applies to, as lossless JSON text. */
+  readonly payload: string
+  /** SHA-256 of {@link payload}, so a decision names the exact bytes. */
+  readonly digest: string
+  /** Current decision state. */
+  readonly status: BotApprovalStatus
+  /** ISO-8601 request time. */
+  readonly createdAt: string
+  /** ISO-8601 decision time, once decided. */
+  readonly decidedAt?: string | undefined
+  /** The decider's one-line note, when they left one. */
+  readonly note?: string | undefined
 }
 
 /** What a bot's worker reports about its ticket. */

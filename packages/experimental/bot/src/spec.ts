@@ -8,10 +8,13 @@ import { z } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
-import type { BotId, BotMemoryId, BotMemoryRecord, BotRecord, TicketId, TicketRecord } from './types.ts'
+import type { BotApprovalId, BotApprovalRecord, BotId, BotMemoryId, BotMemoryRecord, BotRecord, TicketId, TicketRecord } from './types.ts'
 
 /** Brand a stored string as a {@link BotId}. */
 const botId = z.string().min(1).transform(value => value as BotId)
+
+/** Brand a stored string as a {@link BotApprovalId}. */
+const approvalId = z.string().min(1).transform(value => value as BotApprovalId)
 
 /** Brand a stored string as a {@link BotMemoryId}. */
 const memoryId = z.string().min(1).transform(value => value as BotMemoryId)
@@ -58,18 +61,33 @@ export const memoryRecordSchema = z.object({
   sourceTicket: ticketId.optional(),
 })
 
+/** Durable shape of one approval request. */
+export const approvalRecordSchema = z.object({
+  id: approvalId,
+  botId,
+  ticketId,
+  action: z.string().min(1),
+  payload: z.string().min(1),
+  digest: z.string().min(1),
+  status: z.enum(['pending', 'approved', 'denied']),
+  createdAt: z.string().min(1),
+  decidedAt: z.string().min(1).optional(),
+  note: z.string().optional(),
+})
+
 /**
- * The `bot` domain: bots, tickets, and remembered notes, with no global state.
- * Version 2 adds the `memories` table; version-1 stores load unchanged, and
- * their records keep their meaning.
+ * The `bot` domain: bots, tickets, remembered notes, and approval requests,
+ * with no global state. Version 3 adds the `approvals` table; version-1 and
+ * version-2 stores load unchanged, and their records keep their meaning.
  */
 export const botDomainSpec = defineDomain({
   name: 'bot',
-  version: 2,
-  compatibleVersions: [1],
+  version: 3,
+  compatibleVersions: [1, 2],
   tables: {
     bots: domainTable<BotId, BotRecord>(botRecordSchema),
     tickets: domainTable<TicketId, TicketRecord>(ticketRecordSchema),
     memories: domainTable<BotMemoryId, BotMemoryRecord>(memoryRecordSchema),
+    approvals: domainTable<BotApprovalId, BotApprovalRecord>(approvalRecordSchema),
   },
 })

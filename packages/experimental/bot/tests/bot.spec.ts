@@ -7,8 +7,8 @@ import { createToolResultMessage, createUserMessage, ToolCallId } from '@deepsee
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import BotRegistry, { botProjection, botRecordSchema, memoryRecordSchema, ticketRecordSchema, workerInstruction } from '../src/index.ts'
-import type { BotId, BotMemoryId, BotProjectionState, TicketId } from '../src/index.ts'
+import BotRegistry, { approvalRecordSchema, botProjection, botRecordSchema, memoryRecordSchema, ticketRecordSchema, workerInstruction } from '../src/index.ts'
+import type { BotApprovalId, BotId, BotMemoryId, BotProjectionState, TicketId } from '../src/index.ts'
 
 const ROUTER = brandString<SessionId>('router-1')
 const WORKER = brandString<SessionId>('worker-1')
@@ -136,13 +136,15 @@ describe('tickets', () => {
       workspace: '/tmp/work',
       routerSession: ROUTER,
     })
-    await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review the diff.' })
+    const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review the diff.' })
     await ctx.bots.remember(bot.id, 'The repo uses pnpm.')
+    await ctx.bots.requestApproval(ticket.id, 'merge', '{}')
     const archived = await ctx.bots.archive(bot.id)
     expect(archived).toEqual({ name: 'reviewer', archivedTickets: 1 })
     expect(ctx.bots.list()).toEqual([])
     expect(ctx.bots.ticketsOf(bot.id)).toEqual([])
     expect(ctx.bots.memoriesOf(bot.id)).toEqual([])
+    expect(ctx.bots.approvalsOf(bot.id)).toEqual([])
     await expect(ctx.bots.archive(bot.id)).rejects.toThrow(/unknown bot/)
   })
 
@@ -153,6 +155,39 @@ describe('tickets', () => {
       title: 'Review #12',
       instruction: 'Review the diff and report.',
     })).rejects.toThrow(/call bot_create/)
+  })
+})
+
+describe('approvals', () => {
+  it('binds a request to its payload and wakes the worker on a decision', async () => {
+    const { ctx, followups } = await harness()
+    const bot = await ctx.bots.create({
+      name: 'reviewer', job: 'Review pull requests', workspace: '/tmp/work', routerSession: ROUTER,
+    })
+    const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review the diff.' })
+    const approval = await ctx.bots.requestApproval(ticket.id, 'merge', '{"pull":12}')
+    expect(approval.status).toBe('pending')
+    expect(approval.payload).toBe('{"pull":12}')
+    expect(approval.digest).toMatch(/^[0-9a-f]{64}$/)
+    expect(followups.some(text => text.includes(approval.id))).toBe(true)
+
+    const decided = await ctx.bots.decideApproval(approval.id, 'approved', 'Ship it.')
+    expect(decided).toMatchObject({ status: 'approved', note: 'Ship it.', payload: '{"pull":12}' })
+    expect(followups.some(text => text.includes(`Approval ${approval.id} was approved`))).toBe(true)
+    expect(ctx.bots.approvalsOf(bot.id)).toHaveLength(1)
+
+    await expect(ctx.bots.decideApproval(approval.id, 'denied')).rejects.toThrow(/already approved/)
+    await expect(ctx.bots.decideApproval(brandString<BotApprovalId>('approval-missing'), 'approved'))
+      .rejects.toThrow(/unknown approval/)
+  })
+
+  it('rejects an approval record with an unknown status', () => {
+    const record = {
+      id: 'approval-1', botId: 'bot-1', ticketId: 'ticket-1', action: 'merge',
+      payload: '{}', digest: 'a'.repeat(64), status: 'pending', createdAt: '2026-11-08T00:00:00Z',
+    }
+    expect(approvalRecordSchema.safeParse(record).success).toBe(true)
+    expect(approvalRecordSchema.safeParse({ ...record, status: 'maybe' }).success).toBe(false)
   })
 })
 
