@@ -17,7 +17,13 @@ const ROUTER = brandString<SessionId>('router-1')
 const WORKER = brandString<SessionId>('worker-1')
 
 /** Boot a context with real storage, the bot registry, and fake peer services. */
-async function harness(config: { quietHours?: string; digestMinutes?: number; holdResults?: boolean } = {}) {
+async function harness(config: {
+  quietHours?: string
+  digestMinutes?: number
+  holdResults?: boolean
+  maxWorkersPerBot?: number
+  maxHandoffDepth?: number
+} = {}) {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await ctx.plugin(Storage)
@@ -52,6 +58,8 @@ async function harness(config: { quietHours?: string; digestMinutes?: number; ho
     enforceApprovals: false,
     guardedTools: ['bash', 'pwsh'],
     holdResults: config.holdResults ?? false,
+    maxWorkersPerBot: config.maxWorkersPerBot ?? 2,
+    maxHandoffDepth: config.maxHandoffDepth ?? 3,
   })
   return { ctx, followups }
 }
@@ -191,6 +199,35 @@ describe('tickets', () => {
     await expect(ctx.bots.handoff(source.id, 'missing', 'x', 'y')).rejects.toThrow(/no active bot/)
     await expect(ctx.bots.handoff(brandString<TicketId>('ticket-missing'), 'fixer', 'x', 'y'))
       .rejects.toThrow(/unknown ticket/)
+  })
+
+  it('queues a ticket when every worker slot is busy and starts it after a report', async () => {
+    const { ctx } = await harness({ maxWorkersPerBot: 1 })
+    await ctx.bots.create({
+      name: 'reviewer', job: 'Review pull requests', workspace: '/tmp/work', routerSession: ROUTER,
+    })
+    const first = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'First', instruction: 'One.' })
+    const second = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Second', instruction: 'Two.' })
+    expect(first.stage).toBe('working')
+    expect(second.stage).toBe('queued')
+    expect(second.workerSession).toBeUndefined()
+
+    await ctx.bots.report(first.workerSession!, first.id, { stage: 'ready', summary: 'Done.' })
+    const started = ctx.bots.ticketsOf(second.botId).find(ticket => ticket.id === second.id)
+    expect(started?.stage).toBe('working')
+    expect(started?.workerSession).toBeDefined()
+  })
+
+  it('refuses a handoff beyond the configured depth', async () => {
+    const { ctx } = await harness({ maxHandoffDepth: 1 })
+    await ctx.bots.create({ name: 'reviewer', job: 'A', workspace: '/tmp/work', routerSession: ROUTER })
+    await ctx.bots.create({ name: 'fixer', job: 'B', workspace: '/tmp/work', routerSession: brandString<SessionId>('router-2') })
+    await ctx.bots.create({ name: 'third', job: 'C', workspace: '/tmp/work', routerSession: brandString<SessionId>('router-3') })
+    const source = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+    const firstHandoff = await ctx.bots.handoff(source.id, 'fixer', 'Fix #12', 'Fix it.')
+    expect(firstHandoff.handoffDepth).toBe(1)
+    await expect(ctx.bots.handoff(firstHandoff.id, 'third', 'Third', 'Go.'))
+      .rejects.toThrow(/handoff depth 2 exceeds/)
   })
 
   it('refuses to open a ticket when no bot is bound to the Session', async () => {

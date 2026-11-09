@@ -83,6 +83,8 @@ export interface TicketRecord {
   readonly parentTicket?: TicketId | undefined
   /** The name of the bot that handed the work off. */
   readonly parentBotName?: string | undefined
+  /** Handoff chain depth; absent on a ticket a person opened. */
+  readonly handoffDepth?: number | undefined
   /** ISO-8601 creation time. */
   readonly createdAt: string
   /** ISO-8601 time of the latest write. */
