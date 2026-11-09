@@ -44,7 +44,7 @@ A conversation then drives one bot:
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-The service opens one `bot` domain, version 8, with five tables. Versions 1 through 7 load unchanged.
+The service opens one `bot` domain, version 9, with five tables. Versions 1 through 8 load unchanged.
 
 | Table | Key | Holds |
 |---|---|---|
@@ -54,7 +54,7 @@ The service opens one `bot` domain, version 8, with five tables. Versions 1 thro
 | `approvals` | `BotApprovalId` | bot, ticket, action, exact payload, SHA-256 digest, status, decision note |
 | `notices` | `BotNoticeId` | bot, ticket, conversation, text, summary, creation and delivery times |
 
-A ticket moves `queued` → `working` → `waiting` or `ready`, or to `blocked` and `failed`. A launch failure keeps the ticket and marks it `failed` with the error message, so the panel can show what happened instead of losing the request.
+A ticket moves `queued` → `working` → `waiting` or `ready`, or to `blocked` and `failed`. A bot runs at most `maxWorkersPerBot` workers at once: further tickets stay `queued` with no worker Session, and a `ready`, `failed`, or `blocked` report starts the oldest queued ticket. A handoff beyond `maxHandoffDepth` is refused before the ticket is created; `waiting` keeps its slot. A launch failure keeps the ticket and marks it `failed` with the error message, so the panel can show what happened instead of losing the request.
 
 `bot_open_ticket` creates the worker through `ctx.agents.create` as an ordinary root Session: it receives the bot's workspace as its working directory, is attached to that workspace, is titled `<bot>: <ticket>`, and receives one instruction message. It mounts the bot's named preset, or the registry's default preset when the bot names none; a worker with neither has no tools, because the root composition carries none. The worker is not a subagent; it survives its creator and appears in the sidebar. When it calls `bot_report`, the service validates that the caller is the ticket's worker Session, writes the stage and summary, and sends one notice to the router Session when that Session is live. A worker's instruction also carries the bot's notes, newest first, under "Known context for this bot". When the bot names a tool allowlist, its workers see only that list as callable and the `tools/pre-execute` gate denies anything else; `bot_report`, `bot_remember`, `bot_request_approval`, and `bot_handoff` always remain available. A worker that needs a decision calls `bot_request_approval`, which stores the exact payload with its SHA-256 digest and notifies the conversation; `bot_decide_approval` records the decision against that payload and sends the outcome back to the worker Session. With `enforceApprovals` on, the `tools/pre-execute` hook denies a guarded tool in a ticket worker unless an approved request for that ticket has the exact shell command as its payload; the denial reason tells the worker to request approval and retry. Without the gate the protocol is advisory. Actions on a bot's `hardFloor` are refused at request time and cannot be approved later: a person must perform them. A worker can also call `bot_handoff`, which opens a ticket on another active bot, records `parentTicket` and `parentBotName` on it, and tells the new worker which ticket handed the work off.
 

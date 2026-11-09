@@ -65,6 +65,10 @@ export interface BotAttentionConfig {
   guardedTools: string[]
   /** Hold result notices (ready, waiting) for the next digest instead of delivering them immediately. */
   holdResults: boolean
+  /** Worker Sessions one bot may run at once; extra tickets wait in `queued`. */
+  maxWorkersPerBot: number
+  /** Deepest handoff chain a ticket may belong to. */
+  maxHandoffDepth: number
 }
 
 /** A resolved quiet window, in local minutes since midnight. */
@@ -193,6 +197,10 @@ export class BotRegistry extends Service {
       .description('Tool names the approval gate protects.'),
     holdResults: z.boolean().default(false)
       .description('Hold ready and waiting notices for the next digest instead of delivering them immediately.'),
+    maxWorkersPerBot: z.natural().min(1).max(16).default(2)
+      .description('Worker Sessions one bot may run at once; extra tickets wait in queued.'),
+    maxHandoffDepth: z.natural().max(10).default(3)
+      .description('Deepest handoff chain a ticket may belong to.'),
   })
 
   private botsTable!: KvTable<BotId, BotRecord>
@@ -205,6 +213,8 @@ export class BotRegistry extends Service {
   private readonly enforceApprovals: boolean
   private readonly guardedTools: readonly string[]
   private readonly holdResults: boolean
+  private readonly maxWorkersPerBot: number
+  private readonly maxHandoffDepth: number
 
   constructor(ctx: Context, config: Partial<BotAttentionConfig> = {}) {
     super(ctx, 'bots')
@@ -213,6 +223,8 @@ export class BotRegistry extends Service {
     this.enforceApprovals = config.enforceApprovals ?? false
     this.guardedTools = config.guardedTools ?? ['bash', 'pwsh']
     this.holdResults = config.holdResults ?? false
+    this.maxWorkersPerBot = config.maxWorkersPerBot ?? 2
+    this.maxHandoffDepth = config.maxHandoffDepth ?? 3
   }
 
   /** Open the domain and register the model tools. */
@@ -323,15 +335,19 @@ export class BotRegistry extends Service {
     if (target === undefined) throw new Error(`no active bot named '${targetName}'`)
     if (candidates.length > 1) throw new Error(`more than one active bot is named '${targetName}'`)
     if (String(target.id) === String(source.botId)) throw new Error('cannot hand off to the same bot')
-    return await this.createTicket(target, title, instruction, { ticket: source, bot: sourceBot })
+    const depth = (source.handoffDepth ?? 0) + 1
+    if (depth > this.maxHandoffDepth) {
+      throw new Error(`handoff depth ${depth} exceeds the configured maximum ${this.maxHandoffDepth}`)
+    }
+    return await this.createTicket(target, title, instruction, { ticket: source, bot: sourceBot, depth })
   }
 
-  /** Create a ticket for one bot, launch its worker, and record the launch outcome. */
+  /** Create a ticket for one bot, then launch it when a worker slot is free. */
   private async createTicket(
     bot: BotRecord,
     titleInput: string,
     instructionInput: string,
-    parent?: { readonly ticket: TicketRecord; readonly bot: BotRecord },
+    parent?: { readonly ticket: TicketRecord; readonly bot: BotRecord; readonly depth: number },
   ): Promise<TicketRecord> {
     const title = requireText(titleInput, 'title')
     const instruction = requireText(instructionInput, 'instruction')
@@ -343,19 +359,32 @@ export class BotRegistry extends Service {
       instruction,
       stage: 'queued',
       routerSession: bot.routerSession,
-      ...(parent === undefined ? {} : { parentTicket: parent.ticket.id, parentBotName: parent.bot.name }),
+      ...(parent === undefined
+        ? {}
+        : { parentTicket: parent.ticket.id, parentBotName: parent.bot.name, handoffDepth: parent.depth }),
       createdAt: timestamp,
       updatedAt: timestamp,
     }
     await this.ticketsTable.put(ticket.id, ticket)
+    if (this.activeWorkers(bot.id) >= this.maxWorkersPerBot) return ticket
+    return await this.launchTicket(bot, ticket)
+  }
+
+  /** Worker Sessions currently holding a slot for one bot. */
+  private activeWorkers(botId: BotId): number {
+    return [...this.ticketsTable.entries()]
+      .filter(([, ticket]) => String(ticket.botId) === String(botId)
+        && (ticket.stage === 'working' || ticket.stage === 'waiting'))
+      .length
+  }
+
+  /** Launch one queued ticket and record the outcome. */
+  private async launchTicket(bot: BotRecord, ticket: TicketRecord): Promise<TicketRecord> {
+    const origin = ticket.parentTicket === undefined || ticket.parentBotName === undefined
+      ? undefined
+      : { botName: ticket.parentBotName, ticketId: ticket.parentTicket }
     try {
-      const workerSession = await launchWorker(
-        this.ctx,
-        bot,
-        ticket,
-        this.memoriesOf(bot.id),
-        parent === undefined ? undefined : { botName: parent.bot.name, ticketId: parent.ticket.id },
-      )
+      const workerSession = await launchWorker(this.ctx, bot, ticket, this.memoriesOf(bot.id), origin)
       return await this.ticketsTable.update(ticket.id, current => ({
         ...current,
         stage: 'working',
@@ -370,6 +399,22 @@ export class BotRegistry extends Service {
         summary: error instanceof Error ? error.message : String(error),
         updatedAt: now(),
       }))
+    }
+  }
+
+  /** Launch queued tickets for one bot while it has free slots. */
+  private async pumpQueue(botId: BotId): Promise<void> {
+    const bot = this.botsTable.get(botId)
+    if (bot === undefined || bot.status !== 'active') return
+    let active = this.activeWorkers(botId)
+    const queued = [...this.ticketsTable.entries()]
+      .map(([, ticket]) => ticket)
+      .filter(ticket => String(ticket.botId) === String(botId) && ticket.stage === 'queued')
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    for (const ticket of queued) {
+      if (active >= this.maxWorkersPerBot) break
+      await this.launchTicket(bot, ticket)
+      active += 1
     }
   }
 
@@ -394,6 +439,9 @@ export class BotRegistry extends Service {
       updatedAt: now(),
     }))
     await this.notifyRouter(ticket, report.stage, summary)
+    if (report.stage === 'ready' || report.stage === 'failed' || report.stage === 'blocked') {
+      await this.pumpQueue(ticket.botId)
+    }
     return updated
   }
 

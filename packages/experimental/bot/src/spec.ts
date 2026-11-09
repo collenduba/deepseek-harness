@@ -55,6 +55,7 @@ export const ticketRecordSchema = z.object({
   summary: z.string().optional(),
   parentTicket: ticketId.optional(),
   parentBotName: z.string().min(1).optional(),
+  handoffDepth: z.number().int().nonnegative().optional(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
 })
@@ -97,13 +98,13 @@ export const noticeRecordSchema = z.object({
 
 /**
  * The `bot` domain: bots, tickets, remembered notes, approval requests, and
- * notices, with no global state. Version 8 adds a notice severity; versions 1
- * through 7 load unchanged and read as interrupts.
+ * notices, with no global state. Version 9 records a ticket's handoff depth;
+ * versions 1 through 8 load unchanged and read as depth 0.
  */
 export const botDomainSpec = defineDomain({
   name: 'bot',
-  version: 8,
-  compatibleVersions: [1, 2, 3, 4, 5, 6, 7],
+  version: 9,
+  compatibleVersions: [1, 2, 3, 4, 5, 6, 7, 8],
   tables: {
     bots: domainTable<BotId, BotRecord>(botRecordSchema),
     tickets: domainTable<TicketId, TicketRecord>(ticketRecordSchema),
