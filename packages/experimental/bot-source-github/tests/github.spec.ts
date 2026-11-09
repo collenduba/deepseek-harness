@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { candidateOf, freshIssues, parseIssues, reportComment, ticketInstruction } from '../src/github.ts'
+import { admitted, candidateOf, freshIssues, parseIssues, reportComment, ticketInstruction } from '../src/github.ts'
 import type { GithubIssue } from '../src/github.ts'
 
 const issue = (number: number, over: Partial<GithubIssue> = {}): GithubIssue => ({
@@ -8,6 +8,7 @@ const issue = (number: number, over: Partial<GithubIssue> = {}): GithubIssue => 
   body: `Body ${number}`,
   url: `https://github.com/o/r/issues/${number}`,
   updatedAt: '2026-11-08T00:00:00Z',
+  author: { login: 'alice' },
   ...over,
 })
 
@@ -21,6 +22,7 @@ describe('parseIssues', () => {
   it('rejects a payload that is not an issue array', () => {
     expect(() => parseIssues('{"number":1}')).toThrow()
     expect(() => parseIssues(JSON.stringify([{ number: 'one' }]))).toThrow()
+    expect(() => parseIssues(JSON.stringify([{ ...issue(3), author: undefined }]))).toThrow()
   })
 })
 
@@ -32,6 +34,14 @@ describe('freshIssues', () => {
 
   it('returns nothing when every number is handled', () => {
     expect(freshIssues(['1', '2'], [issue(1), issue(2)])).toEqual([])
+  })
+})
+
+describe('admitted', () => {
+  it('admits everyone with an empty list and matches logins case-insensitively', () => {
+    expect(admitted('alice', [])).toBe(true)
+    expect(admitted('Alice', ['alice'])).toBe(true)
+    expect(admitted('bob', ['alice'])).toBe(false)
   })
 })
 
@@ -62,6 +72,7 @@ describe('ticketInstruction', () => {
       body: 'Steps to reproduce.',
       url: 'https://github.com/o/r/issues/7',
       updatedAt: '2026-11-08T00:00:00Z',
+      author: { login: 'alice' },
     })
     expect(text).toContain('Work on o/r issue #7: Retry login')
     expect(text).toContain('https://github.com/o/r/issues/7')
@@ -70,7 +81,7 @@ describe('ticketInstruction', () => {
 
   it('marks an empty body', () => {
     expect(ticketInstruction('o/r', {
-      number: 8, title: 'Empty', body: '  ', url: 'u', updatedAt: 't',
+      number: 8, title: 'Empty', body: '  ', url: 'u', updatedAt: 't', author: { login: 'alice' },
     })).toContain('(no description)')
   })
 })

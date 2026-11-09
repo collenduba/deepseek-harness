@@ -28,7 +28,7 @@ export const candidateSchema = z.object({
   number: z.number().int().positive(),
   title: z.string(),
   url: z.string().min(1),
-  state: z.enum(['would-open', 'opened']),
+  state: z.enum(['would-open', 'opened', 'filtered']),
   ticketId: z.string().min(1).optional(),
   createdAt: z.string().min(1),
   commentedAt: z.string().min(1).optional(),
@@ -37,11 +37,11 @@ export const candidateSchema = z.object({
 /** Stored candidate. */
 export type SourceCandidate = z.infer<typeof candidateSchema>
 
-/** The source's own domain, version 3: cursors, candidates, and comment receipts. */
+/** The source's own domain, version 4: candidates can be filtered by author. */
 export const sourceDomainSpec = defineDomain({
   name: 'bot-source-github',
-  version: 3,
-  compatibleVersions: [1, 2],
+  version: 4,
+  compatibleVersions: [1, 2, 3],
   tables: {
     cursors: domainTable<SourceKey, SourceCursor>(cursorSchema),
     candidates: domainTable<CandidateId, SourceCandidate>(candidateSchema),
