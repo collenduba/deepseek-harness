@@ -1013,6 +1013,7 @@ export class BotRegistry extends Service {
         parameters: {
           title: { type: 'string', required: true, description: 'Short title for the work, shown in the panel.' },
           instruction: { type: 'string', required: true, description: 'The complete instruction the worker executes, including every fact it needs.' },
+          workspace: { type: 'string', description: 'Optional absolute working directory for this ticket\'s worker.' },
         },
         output: {
           schema: {
@@ -1032,6 +1033,7 @@ export class BotRegistry extends Service {
             routerSession: exec.agent.session.id,
             title: args.title,
             instruction: args.instruction,
+            ...(args.workspace === undefined ? {} : { workspace: args.workspace }),
           })
           return {
             ticketId: ticket.id,
