@@ -275,6 +275,11 @@ export class BotRegistry extends Service {
       'bot.approvalGate',
     )
     this.ctx.effect(() => this.registerTools(), 'bot.tools')
+    queueMicrotask(() => {
+      void this.reconcile().catch((error: unknown) => {
+        this.ctx.logger.warn(`bot: startup reconciliation failed: ${String(error)}`)
+      })
+    })
   }
 
   /**
@@ -767,14 +772,20 @@ export class BotRegistry extends Service {
     const summary = `worker exceeded the ${this.workerTimeoutMinutes}-minute budget`
     const agent = ticket.workerSession === undefined ? undefined : this.ctx.get('agents')?.get(ticket.workerSession)
     if (agent !== undefined && agent.status === 'running') agent.cancel({ kind: 'user' })
-    await this.ticketsTable.update(ticketId, current => ({ ...current, stage: 'blocked', summary, updatedAt: now() }))
-    await this.notifyRouter(ticket, 'blocked', summary)
-    await this.pumpQueue(ticket.botId)
+    let changed = false
+    const updated = await this.ticketsTable.update(ticketId, (current) => {
+      if (current.stage !== 'working') return current
+      changed = true
+      return { ...current, stage: 'blocked', summary, updatedAt: now() }
+    })
+    if (!changed) return
+    await this.notifyRouter(updated, 'blocked', summary)
+    await this.pumpQueue(updated.botId)
   }
 
   /**
    * Mark workers that are no longer running as blocked, then fill free slots.
-   * Call after a Host restart; a live worker keeps its remaining budget.
+   * Runs once at startup; a live worker is re-armed with a fresh budget.
    */
   async reconcile(): Promise<void> {
     for (const [id, ticket] of [...this.ticketsTable.entries()]) {

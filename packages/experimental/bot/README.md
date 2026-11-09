@@ -86,10 +86,11 @@ The schemas are static for the mount lifetime. A ticket result appends to its co
 - The gate covers the guarded tools' `command` argument only. Other consequential tools stay advisory until they are added to `guardedTools` with a comparable payload, and an approval stays usable for repeated identical commands.
 - A decision reaches the worker only while its Session is live; otherwise the record is decided and the worker finds out on its next turn.
 - Quiet hours follow the Host's local clock; there is no per-user time zone, and nothing is delivered while the Host is stopped.
-- A digest is one message per conversation per interval; there is no severity ranking or per-bot cap yet.
+- A digest is one message per conversation per interval; there is no per-user schedule or per-bot cap yet.
 - A handoff target is resolved by name among active bots and must be unique; a target that is paused or duplicated is refused.
-- Handoffs block only the same-bot case, so A → B → A chains are possible and no depth limit exists yet.
-- Event sources, observe and auto modes, approval records, memory, and capability grants are not implemented.
+- Handoff chains stop at `maxHandoffDepth`, but a later hop may target a bot the chain already used.
+- A worker stopped by its budget or by a restart keeps its Session log but does not resume its turn; the ticket records the interruption.
+- Startup reconciliation re-arms a live worker with a fresh budget, so a restart extends its deadline beyond the configured minutes.
 - One worker runs per ticket with no concurrency limit or slot accounting.
 - A report reaches the router only while that Session is live; otherwise the ticket keeps the stage and summary.
 - A named `preset` must exist in the composition; a missing agent-preset registry fails the launch with an explicit error. Without a named preset the worker mounts the registry's current default, so the deployment default must include the tools its jobs need.
