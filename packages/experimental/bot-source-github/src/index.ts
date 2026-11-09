@@ -6,6 +6,7 @@
  */
 
 import { setTimeout as delay } from 'node:timers/promises'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the `ctx.bots` Service declaration from the bot package.
 import type {} from '@deepseek-ai/dsh-bot'
@@ -14,8 +15,9 @@ import { admitted, candidateOf, commentIssue, freshIssues, listIssues, reportCom
 import type { GithubIssue } from './github.ts'
 import type { PollOptions } from './github.ts'
 import { sourceDomainSpec } from './spec.ts'
-import type { CandidateId, SourceCandidate, SourceKey } from './spec.ts'
+import type { CandidateId, SourceCandidate, SourceCursor, SourceKey } from './spec.ts'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
+import { brandString } from '@deepseek-ai/dsh-brand'
 
 /** Deployment configuration for one repository watch. */
 export interface Config {
@@ -65,19 +67,26 @@ export const Config: z<Config> = z.object({
 export const name = 'bot-source-github'
 
 /** Services the source reads. */
-export const inject = ['bots', 'storageDomain']
+export const inject = ['bots', 'storageDomain', 'tools']
 
 /**
- * Start the polling loop as an effect of this plugin's fiber.
- * @param ctx - context providing the bot registry and storage.
+ * Open the source domain, start the polling loop, and register the review
+ * tools as effects of this plugin's fiber.
+ * @param ctx - context providing the bot registry, storage, and tools.
  * @param config - one repository watch.
  */
-export function apply(ctx: Context, config: Config): void {
+export async function apply(ctx: Context, config: Config): Promise<void> {
+  const domain = await ctx.storageDomain.open(sourceDomainSpec)
+  ctx.effect(() => () => domain.close(), 'bot-source-github.domainClose')
+  const state: SourceState = {
+    cursors: domain.table('cursors'),
+    candidates: domain.table('candidates'),
+  }
   ctx.effect(() => {
     const controller = new AbortController()
     // DSH ends its process on an unhandled rejection, so a failure that escapes
     // the loop becomes one warning instead of a crash.
-    const running = watch(ctx, config, controller.signal).catch((error: unknown) => {
+    const running = runSource(ctx, config, controller.signal, realDeps(config), state).catch((error: unknown) => {
       if (!controller.signal.aborted) {
         ctx.logger.warn(`bot-source-github: ${error instanceof Error ? error.message : String(error)}`)
       }
@@ -87,6 +96,67 @@ export function apply(ctx: Context, config: Config): void {
       await running
     }
   }, 'bot-source-github.loop')
+  registerTools(ctx, config, state)
+}
+
+/** Open tables the loop and the tools share. */
+export interface SourceState {
+  /** Per-repository handled issue numbers. */
+  readonly cursors: KvTable<SourceKey, SourceCursor>
+  /** Candidates the source considered. */
+  readonly candidates: KvTable<CandidateId, SourceCandidate>
+}
+
+/**
+ * Candidates for one repository, newest issue first.
+ * @param state - the source tables.
+ * @param repository - `owner/name` filter.
+ * @param wanted - optional state filter.
+ * @param limit - maximum rows.
+ * @returns the matching candidates.
+ */
+export function candidatesFor(
+  state: SourceState,
+  repository: string,
+  wanted?: SourceCandidate['state'],
+  limit = 20,
+): SourceCandidate[] {
+  return [...state.candidates.entries()]
+    .map(([, candidate]) => candidate)
+    .filter(candidate => candidate.repository === repository && (wanted === undefined || candidate.state === wanted))
+    .sort((left, right) => right.number - left.number)
+    .slice(0, limit)
+}
+
+/**
+ * Promote one `would-open` candidate into a ticket on the configured bot.
+ * @param ctx - context providing the bot registry.
+ * @param config - one repository watch.
+ * @param state - the source tables.
+ * @param number - issue number of the candidate.
+ * @returns the new ticket id and issue number.
+ */
+export async function acceptCandidate(
+  ctx: Context,
+  config: Config,
+  state: SourceState,
+  number: number,
+): Promise<{ ticketId: string; number: number }> {
+  const id = brandString<CandidateId>(`candidate-${config.repository}-${number}`)
+  const candidate = state.candidates.get(id)
+  if (candidate === undefined) throw new Error(`unknown candidate #${number}`)
+  if (candidate.state !== 'would-open') throw new Error(`candidate #${number} is ${candidate.state}`)
+  const bots = ctx.bots.list().filter(bot => bot.name === config.bot && bot.status === 'active')
+  const [bot] = bots
+  if (bot === undefined) throw new Error(`no active bot named '${config.bot}'`)
+  if (bots.length > 1) throw new Error(`more than one active bot is named '${config.bot}'`)
+  const ticket = await ctx.bots.openTicket({
+    routerSession: bot.routerSession,
+    title: `#${candidate.number} ${candidate.title}`,
+    instruction: ticketInstruction(config.repository, candidate),
+  })
+  await state.candidates.put(id, { ...candidate, state: 'opened', ticketId: ticket.id })
+  return { ticketId: ticket.id, number: candidate.number }
 }
 
 /** Read cancellation through a call so control-flow narrowing cannot pin the flag. */
@@ -157,68 +227,130 @@ function pollOptions(config: Config): PollOptions {
  * @param config - one repository watch.
  * @param signal - effect cancellation.
  */
-async function watch(ctx: Context, config: Config, signal: AbortSignal): Promise<void> {
-  await runSource(ctx, config, signal, realDeps(config))
-}
-
 /**
  * Run the poll loop until the signal aborts.
- * @param ctx - context providing the bot registry and storage.
+ * @param ctx - context providing the bot registry.
  * @param config - one repository watch.
  * @param signal - cancellation.
  * @param deps - the list and comment effects, injectable for tests.
+ * @param state - the source tables, opened by the caller.
  */
-export async function runSource(ctx: Context, config: Config, signal: AbortSignal, deps: SourceDeps): Promise<void> {
-  const domain = await ctx.storageDomain.open(sourceDomainSpec)
-  try {
-    const cursors = domain.table('cursors')
-    const candidates = domain.table('candidates')
-    const key = config.repository as SourceKey
-    if (cursors.get(key) === undefined) {
-      const existing = await deps.list(signal)
-      const seed = config.backlog === 'open' ? [] : existing.map(issue => String(issue.number))
-      await cursors.put(key, { seen: seed.slice(0, config.maxSeen) })
-    }
-    while (!isAborted(signal)) {
-      try {
-        const issues = await deps.list(signal)
-        const current = cursors.get(key) ?? { seen: [] }
-        const fresh = freshIssues(current.seen, issues)
-        if (fresh.length > 0) {
-          const bot = config.mode === 'auto'
-            ? ctx.bots.list().find(candidate => candidate.name === config.bot)
-            : undefined
-          if (config.mode === 'auto' && bot === undefined) throw new Error(`no bot named '${config.bot}'`)
-          for (const issue of fresh) {
-            const candidate = candidateOf(config.repository, issue, deps.now().toISOString())
-            if (!admitted(issue.author.login, config.allowedAuthors)) {
-              await candidates.put(candidate.id, { ...candidate, state: 'filtered' })
-              ctx.logger.info(`bot-source-github: #${issue.number} is from an author outside the allowlist`)
-              continue
-            }
-            await candidates.put(candidate.id, candidate)
-            if (bot === undefined) {
-              ctx.logger.info(`bot-source-github: observe only, would open a ticket for #${issue.number}`)
-              continue
-            }
-            const ticket = await ctx.bots.openTicket({
-              routerSession: bot.routerSession,
-              title: `#${issue.number} ${issue.title}`,
-              instruction: ticketInstruction(config.repository, issue),
-            })
-            await candidates.put(candidate.id, { ...candidate, state: 'opened', ticketId: ticket.id })
-          }
-          const handled = fresh.map(issue => String(issue.number)).reverse()
-          await cursors.put(key, { seen: [...handled, ...current.seen].slice(0, config.maxSeen) })
-        }
-        await publishReports(ctx, config, candidates, signal, deps)
-      } catch (error: unknown) {
-        if (isAborted(signal)) break
-        ctx.logger.warn(`bot-source-github: poll failed: ${error instanceof Error ? error.message : String(error)}`)
-      }
-      await delay(config.pollSeconds * 1000, undefined, { signal }).catch(() => {})
-    }
-  } finally {
-    await domain.close()
+export async function runSource(
+  ctx: Context,
+  config: Config,
+  signal: AbortSignal,
+  deps: SourceDeps,
+  state: SourceState,
+): Promise<void> {
+  const { cursors, candidates } = state
+  const key = config.repository as SourceKey
+  if (cursors.get(key) === undefined) {
+    const existing = await deps.list(signal)
+    const seed = config.backlog === 'open' ? [] : existing.map(issue => String(issue.number))
+    await cursors.put(key, { seen: seed.slice(0, config.maxSeen) })
   }
+  while (!isAborted(signal)) {
+    try {
+      const issues = await deps.list(signal)
+      const current = cursors.get(key) ?? { seen: [] }
+      const fresh = freshIssues(current.seen, issues)
+      if (fresh.length > 0) {
+        const bot = config.mode === 'auto'
+          ? ctx.bots.list().find(candidate => candidate.name === config.bot)
+          : undefined
+        if (config.mode === 'auto' && bot === undefined) throw new Error(`no bot named '${config.bot}'`)
+        for (const issue of fresh) {
+          const candidate = candidateOf(config.repository, issue, deps.now().toISOString())
+          if (!admitted(issue.author.login, config.allowedAuthors)) {
+            await candidates.put(candidate.id, { ...candidate, state: 'filtered' })
+            ctx.logger.info(`bot-source-github: #${issue.number} is from an author outside the allowlist`)
+            continue
+          }
+          await candidates.put(candidate.id, candidate)
+          if (bot === undefined) {
+            ctx.logger.info(`bot-source-github: observe only, would open a ticket for #${issue.number}`)
+            continue
+          }
+          const ticket = await ctx.bots.openTicket({
+            routerSession: bot.routerSession,
+            title: `#${issue.number} ${issue.title}`,
+            instruction: ticketInstruction(config.repository, issue),
+          })
+          await candidates.put(candidate.id, { ...candidate, state: 'opened', ticketId: ticket.id })
+        }
+        const handled = fresh.map(issue => String(issue.number)).reverse()
+        await cursors.put(key, { seen: [...handled, ...current.seen].slice(0, config.maxSeen) })
+      }
+      await publishReports(ctx, config, candidates, signal, deps)
+    } catch (error: unknown) {
+      if (isAborted(signal)) break
+      ctx.logger.warn(`bot-source-github: poll failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    await delay(config.pollSeconds * 1000, undefined, { signal }).catch(() => {})
+  }
+}
+
+/** Register the two review tools. */
+function registerTools(ctx: Context, config: Config, state: SourceState): void {
+  ctx.tools.register(defineTool({
+    name: 'bot_candidates',
+    description: 'List GitHub issue candidates this source considered, newest first, with their state: would-open, opened, or filtered.',
+    parameters: {
+      state: { type: 'string', enum: ['would-open', 'opened', 'filtered'], description: 'Optional state filter.' },
+      limit: { type: 'number', description: 'Maximum rows, default 20.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          candidates: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                number: { type: 'number', required: true },
+                title: { type: 'string', required: true },
+                state: { type: 'string', required: true },
+                ticketId: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    },
+    execute: () => Promise.resolve({
+      candidates: candidatesFor(state, config.repository, undefined).map(candidate => ({
+        number: candidate.number,
+        title: candidate.title,
+        state: candidate.state,
+        ...(candidate.ticketId === undefined ? {} : { ticketId: candidate.ticketId }),
+      })),
+    }),
+    presentCall: args => ({ card: 'generic', title: 'bot_candidates', rawInput: args }),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'bot_accept_candidate',
+    description: 'Promote one would-open GitHub candidate into a ticket on this source\'s bot.',
+    parameters: {
+      number: { type: 'number', required: true, description: 'Issue number of the candidate.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ticketId: { type: 'string', required: true },
+          number: { type: 'number', required: true },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    },
+    execute: async args => await acceptCandidate(ctx, config, state, args.number),
+    presentCall: args => ({ card: 'generic', title: 'bot_accept_candidate', rawInput: args }),
+  }))
 }

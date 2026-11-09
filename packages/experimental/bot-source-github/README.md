@@ -48,6 +48,20 @@ Mount the plugin with a bot and a repository. The shipped `@deepseek-ai/dsh-bot-
 | `allowedAuthors` | `[]` | Logins allowed to open work; empty admits everyone. Others are recorded `filtered` and never open a ticket. |
 | `maxSeen` | `200` | Handled issue numbers remembered per repository. |
 
+### Reviewing candidates
+
+| Tool | Use |
+|---|---|
+| `bot_candidates` | List this repository's candidates, newest issue first, optionally by state. |
+| `bot_accept_candidate` | Promote one `would-open` candidate into a ticket on the configured bot. |
+
+```text
+bot_candidates({ state: 'would-open', limit: 10 })
+bot_accept_candidate({ number: 42 })
+```
+
+Only `would-open` candidates can be promoted; `filtered` records stay closed until the allowlist changes, and an `opened` record already has a ticket.
+
 The `gh` CLI must be authenticated on the Host. The source inherits the scrubbed process environment, so `*TOKEN*`, `*KEY*`, `*SECRET*`, and `*PASSWORD*` variables never reach it; `gh` reads its own credential store.
 
 <a id="understand-the-implementation"></a>
@@ -63,6 +77,20 @@ The `gh` CLI must be authenticated on the Host. The source inherits the scrubbed
 
 <a id="model-experience"></a>
 ## Model Experience
+
+### Candidate tools
+
+#### What the model sees
+
+`bot_candidates` takes an optional `state` and `limit` and returns `{ candidates: [{ number, title, state, ticketId? }] }`. `bot_accept_candidate` takes `number` and returns `{ ticketId, number }`. Their descriptions and schemas are declared in the source plugin.
+
+#### Token effect
+
+Two schemas per Agent that mounts the plugin, and one short result per call.
+
+#### KV Cache effect
+
+The schemas are static for the mount lifetime; a result appends to the conversation.
 
 ### Ticket instructions
 
@@ -89,6 +117,7 @@ Each ticket starts a new Session, so the instruction establishes that Session's 
 - `observe` advances the cursor and keeps candidates only in the source's storage: there is no review tool or panel yet, and switching to `auto` later does not reopen issues observed earlier.
 - Write-back comments once and does not close the issue or reply to review threads; it also needs `gh` write permission on the repository.
 - Admission matches author logins only: organization membership, teams, and bot authors need to be listed explicitly.
+- The two review tools are not in the generated tool catalog, because the generator boots `tool-*` packages and this plugin starts a poll loop; this README is their reference.
 - The bot must already exist when a poll finds work; a missing bot is logged and retried.
 
 <a id="dev-note"></a>
