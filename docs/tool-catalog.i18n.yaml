@@ -9,8 +9,8 @@
   en: 6cc2cd9ced70bb09
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: c088d7bd5a317639
-  zh: 208a4df363528f6c
+  en: 51e1505b3ea1dd33
+  zh: dff066b48a156f2a
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762
@@ -68,6 +68,9 @@
 /tool-schema-catalog/deepseek-ai-dsh-bot/bot-decide-approval:
   en: 1140362d208f0b51
   zh: f5414ac4e3b546d8
+/tool-schema-catalog/deepseek-ai-dsh-bot/bot-handoff:
+  en: 10f5c6093badb5b9
+  zh: a3cd8242945c16da
 /tool-schema-catalog/deepseek-ai-dsh-bot/bot-list:
   en: 6379468f84b20a83
   zh: 51d1295096210629

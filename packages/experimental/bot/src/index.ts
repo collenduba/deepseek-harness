@@ -225,8 +225,39 @@ export class BotRegistry extends Service {
     const bot = this.findByRouter(input.routerSession)
     if (bot === undefined) throw new Error('no bot is bound to this Session; call bot_create first')
     if (bot.status !== 'active') throw new Error(`bot '${bot.name}' is paused`)
-    const title = requireText(input.title, 'title')
-    const instruction = requireText(input.instruction, 'instruction')
+    return await this.createTicket(bot, input.title, input.instruction)
+  }
+
+  /**
+   * Hand one unit of work to another bot and link the new ticket to its source.
+   * @param fromTicketId - the ticket whose worker delegates.
+   * @param targetName - name of an active bot.
+   * @param title - short title for the new ticket.
+   * @param instruction - the instruction the target worker runs.
+   * @returns the new ticket.
+   */
+  async handoff(fromTicketId: TicketId, targetName: string, title: string, instruction: string): Promise<TicketRecord> {
+    const source = this.ticketsTable.get(fromTicketId)
+    if (source === undefined) throw new Error(`unknown ticket '${fromTicketId}'`)
+    const sourceBot = this.botsTable.get(source.botId)
+    if (sourceBot === undefined) throw new Error(`unknown bot '${source.botId}'`)
+    const candidates = this.list().filter(bot => bot.name === targetName && bot.status === 'active')
+    const [target] = candidates
+    if (target === undefined) throw new Error(`no active bot named '${targetName}'`)
+    if (candidates.length > 1) throw new Error(`more than one active bot is named '${targetName}'`)
+    if (String(target.id) === String(source.botId)) throw new Error('cannot hand off to the same bot')
+    return await this.createTicket(target, title, instruction, { ticket: source, bot: sourceBot })
+  }
+
+  /** Create a ticket for one bot, launch its worker, and record the launch outcome. */
+  private async createTicket(
+    bot: BotRecord,
+    titleInput: string,
+    instructionInput: string,
+    parent?: { readonly ticket: TicketRecord; readonly bot: BotRecord },
+  ): Promise<TicketRecord> {
+    const title = requireText(titleInput, 'title')
+    const instruction = requireText(instructionInput, 'instruction')
     const timestamp = now()
     const ticket: TicketRecord = {
       id: brandString<TicketId>(`ticket-${randomUUID()}`),
@@ -234,13 +265,20 @@ export class BotRegistry extends Service {
       title,
       instruction,
       stage: 'queued',
-      routerSession: input.routerSession,
+      routerSession: bot.routerSession,
+      ...(parent === undefined ? {} : { parentTicket: parent.ticket.id, parentBotName: parent.bot.name }),
       createdAt: timestamp,
       updatedAt: timestamp,
     }
     await this.ticketsTable.put(ticket.id, ticket)
     try {
-      const workerSession = await launchWorker(this.ctx, bot, ticket, this.memoriesOf(bot.id))
+      const workerSession = await launchWorker(
+        this.ctx,
+        bot,
+        ticket,
+        this.memoriesOf(bot.id),
+        parent === undefined ? undefined : { botName: parent.bot.name, ticketId: parent.ticket.id },
+      )
       return await this.ticketsTable.update(ticket.id, current => ({
         ...current,
         stage: 'working',
@@ -249,13 +287,12 @@ export class BotRegistry extends Service {
       }))
     } catch (error: unknown) {
       this.ctx.logger.warn(`bot: worker launch for ticket '${ticket.id}' failed: ${String(error)}`)
-      const failed = await this.ticketsTable.update(ticket.id, current => ({
+      return await this.ticketsTable.update(ticket.id, current => ({
         ...current,
         stage: 'failed',
         summary: error instanceof Error ? error.message : String(error),
         updatedAt: now(),
       }))
-      return failed
     }
   }
 
@@ -734,6 +771,36 @@ export class BotRegistry extends Service {
           return { approvalId: updated.id, status: updated.status }
         },
         presentCall: args => ({ card: 'generic', title: 'bot_decide_approval', rawInput: args }),
+      })),
+
+      this.ctx.tools.register(defineTool({
+        name: 'bot_handoff',
+        description: 'Hand one unit of work to another bot. Only a ticket worker may call this. The new ticket names the handoff source so its worker knows where the work came from.',
+        parameters: {
+          bot: { type: 'string', required: true, description: 'Name of the target bot.' },
+          title: { type: 'string', required: true, description: 'Short title for the new ticket.' },
+          instruction: { type: 'string', required: true, description: 'The complete instruction the target worker runs.' },
+        },
+        output: {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              ticketId: { type: 'string', required: true },
+              bot: { type: 'string', required: true },
+              stage: { type: 'string', required: true },
+            },
+          },
+          render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+        },
+        async execute(args, exec) {
+          if (exec.agent === undefined) throw new Error('bot_handoff requires a calling agent')
+          const ticket = ctx.bots.ticketOfWorker(exec.agent.session.id)
+          if (ticket === undefined) throw new Error('only a ticket worker may hand work off')
+          const handed = await ctx.bots.handoff(ticket.id, args.bot, args.title, args.instruction)
+          return { ticketId: handed.id, bot: args.bot, stage: handed.stage }
+        },
+        presentCall: args => ({ card: 'generic', title: 'bot_handoff', rawInput: args }),
       })),
       this.ctx.tools.register(defineTool({
         name: 'bot_remember',

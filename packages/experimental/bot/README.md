@@ -38,12 +38,13 @@ A conversation then drives one bot:
 | `bot_remember` | Keep one durable note for the bot; every later worker reads it. |
 | `bot_request_approval` | Worker-only: ask the bot's conversation to approve one action, bound to the exact payload. |
 | `bot_decide_approval` | Router-only: approve or deny a pending request; the worker is told the outcome. |
+| `bot_handoff` | Worker-only: hand one unit of work to another active bot, linked to the source ticket. |
 | `bot_archive` | Remove a bot, its tickets, and its notes; worker Sessions and their directories stay. |
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-The service opens one `bot` domain, version 4, with five tables. Versions 1 through 3 load unchanged.
+The service opens one `bot` domain, version 5, with five tables. Versions 1 through 4 load unchanged.
 
 | Table | Key | Holds |
 |---|---|---|
@@ -55,7 +56,7 @@ The service opens one `bot` domain, version 4, with five tables. Versions 1 thro
 
 A ticket moves `queued` → `working` → `waiting` or `ready`, or to `blocked` and `failed`. A launch failure keeps the ticket and marks it `failed` with the error message, so the panel can show what happened instead of losing the request.
 
-`bot_open_ticket` creates the worker through `ctx.agents.create` as an ordinary root Session: it receives the bot's workspace as its working directory, is attached to that workspace, is titled `<bot>: <ticket>`, and receives one instruction message. The worker is not a subagent; it survives its creator and appears in the sidebar. When it calls `bot_report`, the service validates that the caller is the ticket's worker Session, writes the stage and summary, and sends one notice to the router Session when that Session is live. A worker's instruction also carries the bot's notes, newest first, under "Known context for this bot". A worker that needs a decision calls `bot_request_approval`, which stores the exact payload with its SHA-256 digest and notifies the conversation; `bot_decide_approval` records the decision against that payload and sends the outcome back to the worker Session. This is an advisory gate: the worker is asked to wait, and nothing in the tool pipeline prevents it from acting first.
+`bot_open_ticket` creates the worker through `ctx.agents.create` as an ordinary root Session: it receives the bot's workspace as its working directory, is attached to that workspace, is titled `<bot>: <ticket>`, and receives one instruction message. The worker is not a subagent; it survives its creator and appears in the sidebar. When it calls `bot_report`, the service validates that the caller is the ticket's worker Session, writes the stage and summary, and sends one notice to the router Session when that Session is live. A worker's instruction also carries the bot's notes, newest first, under "Known context for this bot". A worker that needs a decision calls `bot_request_approval`, which stores the exact payload with its SHA-256 digest and notifies the conversation; `bot_decide_approval` records the decision against that payload and sends the outcome back to the worker Session. This is an advisory gate: the worker is asked to wait, and nothing in the tool pipeline prevents it from acting first. A worker can also call `bot_handoff`, which opens a ticket on another active bot, records `parentTicket` and `parentBotName` on it, and tells the new worker which ticket handed the work off.
 
 <a id="model-experience"></a>
 ## Model Experience
@@ -83,6 +84,8 @@ The schemas are static for the mount lifetime. A ticket result appends to its co
 - A decision reaches the worker only while its Session is live; otherwise the record is decided and the worker finds out on its next turn.
 - Quiet hours follow the Host's local clock; there is no per-user time zone, and nothing is delivered while the Host is stopped.
 - A digest is one message per conversation per interval; there is no severity ranking or per-bot cap yet.
+- A handoff target is resolved by name among active bots and must be unique; a target that is paused or duplicated is refused.
+- Handoffs block only the same-bot case, so A → B → A chains are possible and no depth limit exists yet.
 - Event sources, observe and auto modes, approval records, memory, and capability grants are not implemented.
 - One worker runs per ticket with no concurrency limit or slot accounting.
 - A report reaches the router only while that Session is live; otherwise the ticket keeps the stage and summary.

@@ -19,7 +19,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-plugin-market` | `plugin_market` | `ctx.tools`, `ctx.pluginMarket` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-experimental-browser-use-stagehand-native` | `stagehand_act`, `stagehand_extract`, `stagehand_navigate`, `stagehand_observe`, `stagehand_screenshot`, `stagehand_tabs` | `ctx.browserUse`, `ctx.agents`, `ctx.tools`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | - |
-| `@deepseek-ai/dsh-bot` | `bot_archive`, `bot_create`, `bot_decide_approval`, `bot_list`, `bot_open_ticket`, `bot_remember`, `bot_report`, `bot_request_approval` | `ctx.tools`, `ctx.bots`, `ctx.storageDomain`, `ctx.agents`, `ctx.sessionProjections`, `ctx.workspaceRegistry`, `ctx.sessionTitle`, `ctx.agentDefaultModel` | `tool/call`, `tool/result`, `bot and ticket records`, `a worker Session on bot_open_ticket` | - | - |
+| `@deepseek-ai/dsh-bot` | `bot_archive`, `bot_create`, `bot_decide_approval`, `bot_handoff`, `bot_list`, `bot_open_ticket`, `bot_remember`, `bot_report`, `bot_request_approval` | `ctx.tools`, `ctx.bots`, `ctx.storageDomain`, `ctx.agents`, `ctx.sessionProjections`, `ctx.workspaceRegistry`, `ctx.sessionTitle`, `ctx.agentDefaultModel` | `tool/call`, `tool/result`, `bot and ticket records`, `a worker Session on bot_open_ticket` | - | - |
 | `@deepseek-ai/dsh-action-cards` | `propose_action` | `ctx.tools`, `ctx.agents`, `ctx.sessionProjections`, `ctx.remoteAccess` | `tool/call`, `tool/result`, `plugin:action-cards/decision`, `user/message` | - | Declared only to an Agent that loaded the skill of a registered card kind; the kind packages register their actions, and the Personalized recommendations bundle supplies the shipped kinds. |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userQuestions` | `tool/call`, `tool/result after an answer or timeout`, `late user/message` | - | ask_user_question keeps the original blocking behavior by default; set `mode: timed` to opt into a foreground timeout and pending result while the question remains answerable. In timed mode, `timeout: -1` keeps that call blocking indefinitely. |
 | `@deepseek-ai/dsh-tool-executor-ptc` | `run_code` | `ctx.workingDirectory (Agent executions)`, `ctx.tools`, `ctx.ptcRuntime`, `ctx.systemPrompt` | `tool/call`, `one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`, `tool/result` | - | The PTC executor exposes only run_code to the model and declares other visible capabilities in a generated SDK in the runtime’s language. Program bindings enter the shared guarded tool pipeline in submission order; concurrency-safe bodies overlap up to maxParallelSubCalls, and nested results remain linked to the outer program. The resolved timeout and maxSubCallsPerMinute set the total call allowance; exceeding it terminates the program. |
@@ -584,6 +584,37 @@ Approve or deny one pending approval request for this conversation's bot. The de
   "required": [
     "approval_id",
     "decision"
+  ]
+}
+```
+
+Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/src/index.ts)
+
+### `bot_handoff`
+
+Hand one unit of work to another bot. Only a ticket worker may call this. The new ticket names the handoff source so its worker knows where the work came from.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "bot": {
+      "type": "string",
+      "description": "Name of the target bot."
+    },
+    "title": {
+      "type": "string",
+      "description": "Short title for the new ticket."
+    },
+    "instruction": {
+      "type": "string",
+      "description": "The complete instruction the target worker runs."
+    }
+  },
+  "required": [
+    "bot",
+    "title",
+    "instruction"
   ]
 }
 ```
