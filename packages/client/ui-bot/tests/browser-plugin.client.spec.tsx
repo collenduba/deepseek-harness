@@ -29,6 +29,7 @@ async function bench() {
   } as never, (() => null) as never)
   ctx.provide('locale', new LocaleRuntime(ctx))
   ctx.provide('uiConversation' as string, {})
+  ctx.provide('uiWorkspace' as string, { openSession: () => {} })
   const fiber = ctx.plugin({ inject: [...inject], apply })
   return { ctx, fiber }
 }

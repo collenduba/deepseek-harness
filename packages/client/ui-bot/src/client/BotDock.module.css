@@ -40,6 +40,24 @@
   white-space: nowrap;
 }
 
+.open {
+  all: unset;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  color: inherit;
+}
+
+.open:hover {
+  text-decoration: underline;
+}
+
+.open:focus-visible {
+  outline: 2px solid var(--dsh-color-focus-ring, #2563eb);
+  outline-offset: 1px;
+}
+
 .stage {
   flex: none;
   color: var(--dsh-color-text-tertiary, #9ca3af);

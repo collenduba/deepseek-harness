@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 // Type-only: registers the `bot` LocaleNamespaceMap key used by the locale seat.
@@ -62,5 +62,24 @@ describe('BotStrip', () => {
     expect(rows[3]?.textContent).toContain('Waiting one')
     expect(rows[4]?.textContent).toContain('Work in flight')
     expect(screen.queryByText('Queued')).toBeNull()
+  })
+
+  it('opens a worker Session from its row and leaves rows without one plain', () => {
+    const openSession = vi.fn()
+    render(<BotStrip
+      view={{
+        bot: { botId: 'bot-1', name: 'reviewer', workspace: '/tmp/w' },
+        tickets: {
+          't-with': { ticketId: 't-with', title: 'Review #12', stage: 'working', workerSession: 'bot-worker-1' },
+          't-without': { ticketId: 't-without', title: 'Review #13', stage: 'queued' },
+        },
+      }}
+      t={t}
+      openSession={openSession}
+    />)
+    fireEvent.click(screen.getByRole('button', { name: 'Review #12' }))
+    expect(openSession).toHaveBeenCalledWith('bot-worker-1')
+    expect(screen.queryByRole('button', { name: 'Review #13' })).toBeNull()
+    expect(screen.getByText('Review #13')).toBeTruthy()
   })
 })
