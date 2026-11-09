@@ -1,0 +1,46 @@
+# Bilingual-pair consistency record for 2026-11-06-super-agent-bots.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-11-06-super-agent-bots.md
+/agent-note-super-agent-bots-on-deepseek-harness:
+  en: 4ebf05d6c17a50a8
+  zh: 1381478952f2b730
+/agent-note-super-agent-bots-on-deepseek-harness/problem:
+  en: 532ec06b8d62cfbd
+  zh: 5782700a1f3a9a0b
+/agent-note-super-agent-bots-on-deepseek-harness/decision:
+  en: a15c7c13f167e5ac
+  zh: ff261e3705c47ff0
+/agent-note-super-agent-bots-on-deepseek-harness/decision/records:
+  en: d842f987c799845b
+  zh: 12fb132091dcdd03
+/agent-note-super-agent-bots-on-deepseek-harness/decision/sessions:
+  en: a7cd776f967ec458
+  zh: 99de37f8cf79d0a9
+/agent-note-super-agent-bots-on-deepseek-harness/decision/tools:
+  en: 19d3e7c567ed3d55
+  zh: 46c415cbdd7de7ee
+/agent-note-super-agent-bots-on-deepseek-harness/decision/authorization-and-approvals:
+  en: fe9da20e539f7015
+  zh: a34cfbf8119c0cb2
+/agent-note-super-agent-bots-on-deepseek-harness/decision/attention-and-memory:
+  en: 28a6c4ee240b5a74
+  zh: d786fb1bf0eaa259
+/agent-note-super-agent-bots-on-deepseek-harness/decision/sources:
+  en: e8bafacee3371dc0
+  zh: f0bce0693c0a0fa4
+/agent-note-super-agent-bots-on-deepseek-harness/decision/panel:
+  en: 2f0b95444ca8ec47
+  zh: 19e7f0acc90d9e85
+/agent-note-super-agent-bots-on-deepseek-harness/decision/packages-and-presets:
+  en: de415cc8d373dd04
+  zh: d66168e3f1388d22
+/agent-note-super-agent-bots-on-deepseek-harness/alternatives-considered:
+  en: 69fa1d15e5a26176
+  zh: 3b08d7446e5167aa
+/agent-note-super-agent-bots-on-deepseek-harness/deferred:
+  en: 2a94d21bad084f18
+  zh: fc2c323d99463756
+/agent-note-super-agent-bots-on-deepseek-harness/consequences:
+  en: ec36e58d92522600
+  zh: fba9095c5207df7a
