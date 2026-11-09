@@ -31,6 +31,7 @@ Mount the plugin with a bot and a repository. The shipped `@deepseek-ai/dsh-bot-
     repository: owner/name
     query: 'is:issue is:open'
     pollSeconds: 60
+    mode: observe
 ```
 
 | Field | Default | Meaning |
@@ -42,6 +43,7 @@ Mount the plugin with a bot and a repository. The shipped `@deepseek-ai/dsh-bot-
 | `ghCommand` | `gh` | Executable name or absolute path. |
 | `timeoutMs` | `30000` | Deadline for one `gh` invocation. |
 | `backlog` | `ignore` | `ignore` marks existing issues handled at startup; `open` tickets every open issue on the first poll. |
+| `mode` | `observe` | `observe` records a candidate per new issue and opens nothing; `auto` opens the ticket. |
 | `maxSeen` | `200` | Handled issue numbers remembered per repository. |
 
 The `gh` CLI must be authenticated on the Host. The source inherits the scrubbed process environment, so `*TOKEN*`, `*KEY*`, `*SECRET*`, and `*PASSWORD*` variables never reach it; `gh` reads its own credential store.
@@ -49,8 +51,8 @@ The `gh` CLI must be authenticated on the Host. The source inherits the scrubbed
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-- **Cursor.** A `bot-source-github` domain (version 1) stores one `{ seen: string[] }` record per repository, newest number first, bounded by `maxSeen`. The first poll writes the seed; every later poll compares against it.
-- **Delivery.** Each fresh issue opens one ticket titled `#<number> <title>` with a deterministic instruction. Issues are handled oldest first, and the cursor advances only after every ticket in the batch opened, so a failure retries the batch on the next poll.
+- **Cursor and candidates.** A `bot-source-github` domain (version 2) stores one `{ seen: string[] }` record per repository and one candidate record per new issue with a deterministic id. The first poll writes the seed; every later poll compares against it. Version-1 stores load unchanged.
+- **Delivery.** Each fresh issue records a candidate. In `auto` mode the source opens one ticket titled `#<number> <title>`, marks the candidate `opened` with the ticket id, and reports as before. In `observe` mode it logs what it would have done and leaves the candidate `would-open`. Issues are handled oldest first, and the cursor advances only after the whole batch is recorded, so a failure retries the batch on the next poll.
 - **Failures.** A failed `gh` call or a missing bot is logged and retried at the next interval; the loop never exits the plugin fiber, and disposal aborts the in-flight poll and waits for the loop.
 - **No deduplication beyond the cursor.** An issue number seen once is never opened again, even if its content changes.
 
@@ -79,6 +81,7 @@ Each ticket starts a new Session, so the instruction establishes that Session's 
 - No write-back to GitHub — the worker reports in the bot's conversation, and nobody comments on the issue unless a later Source adds it.
 - Issue edits do not re-open a ticket; only unseen numbers do.
 - The cursor is per repository, so running two configs for one repository shares state only if they use the same bot and query.
+- `observe` advances the cursor and keeps candidates only in the source's storage: there is no review tool or panel yet, and switching to `auto` later does not reopen issues observed earlier.
 - The bot must already exist when a poll finds work; a missing bot is logged and retried.
 
 <a id="dev-note"></a>

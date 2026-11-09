@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { freshIssues, parseIssues, ticketInstruction } from '../src/github.ts'
+import { candidateOf, freshIssues, parseIssues, ticketInstruction } from '../src/github.ts'
 import type { GithubIssue } from '../src/github.ts'
 
 const issue = (number: number, over: Partial<GithubIssue> = {}): GithubIssue => ({
@@ -32,6 +32,16 @@ describe('freshIssues', () => {
 
   it('returns nothing when every number is handled', () => {
     expect(freshIssues(['1', '2'], [issue(1), issue(2)])).toEqual([])
+  })
+})
+
+describe('candidateOf', () => {
+  it('builds one deterministic would-open candidate per issue', () => {
+    const first = candidateOf('o/r', issue(7), '2026-11-08T00:00:00Z')
+    const again = candidateOf('o/r', issue(7), '2026-11-09T00:00:00Z')
+    expect(first.id).toBe(again.id)
+    expect(first).toMatchObject({ repository: 'o/r', number: 7, state: 'would-open' })
+    expect(first.ticketId).toBeUndefined()
   })
 })
 

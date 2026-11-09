@@ -10,7 +10,7 @@ import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the `ctx.bots` Service declaration from the bot package.
 import type {} from '@deepseek-ai/dsh-bot'
 import z from '@deepseek-ai/schemastery'
-import { freshIssues, listIssues, ticketInstruction } from './github.ts'
+import { candidateOf, freshIssues, listIssues, ticketInstruction } from './github.ts'
 import type { PollOptions } from './github.ts'
 import { sourceDomainSpec } from './spec.ts'
 import type { SourceKey } from './spec.ts'
@@ -31,6 +31,8 @@ export interface Config {
   timeoutMs: number
   /** What the first poll does with issues that already exist. */
   backlog: 'ignore' | 'open'
+  /** Whether a new issue opens a ticket or only records a candidate. */
+  mode: 'observe' | 'auto'
   /** How many handled issue numbers one repository remembers. */
   maxSeen: number
 }
@@ -44,6 +46,8 @@ export const Config: z<Config> = z.object({
   timeoutMs: z.natural().min(1_000).default(30_000).description('Deadline for one gh invocation.'),
   backlog: z.union([z.const('ignore'), z.const('open')]).default('ignore')
     .description('ignore marks existing issues as handled; open tickets every open issue on the first poll.'),
+  mode: z.union([z.const('observe'), z.const('auto')]).default('observe')
+    .description('observe records what it would do without opening tickets; auto opens them.'),
   maxSeen: z.natural().min(1).max(2_000).default(200).description('How many handled issue numbers one repository remembers.'),
 })
 
@@ -100,6 +104,7 @@ async function watch(ctx: Context, config: Config, signal: AbortSignal): Promise
   const domain = await ctx.storageDomain.open(sourceDomainSpec)
   try {
     const cursors = domain.table('cursors')
+    const candidates = domain.table('candidates')
     const key = config.repository as SourceKey
     if (cursors.get(key) === undefined) {
       const existing = await listIssues(pollOptions(config), signal)
@@ -112,14 +117,23 @@ async function watch(ctx: Context, config: Config, signal: AbortSignal): Promise
         const current = cursors.get(key) ?? { seen: [] }
         const fresh = freshIssues(current.seen, issues)
         if (fresh.length > 0) {
-          const bot = ctx.bots.list().find(candidate => candidate.name === config.bot)
-          if (bot === undefined) throw new Error(`no bot named '${config.bot}'`)
+          const bot = config.mode === 'auto'
+            ? ctx.bots.list().find(candidate => candidate.name === config.bot)
+            : undefined
+          if (config.mode === 'auto' && bot === undefined) throw new Error(`no bot named '${config.bot}'`)
           for (const issue of fresh) {
-            await ctx.bots.openTicket({
+            const candidate = candidateOf(config.repository, issue, new Date().toISOString())
+            await candidates.put(candidate.id, candidate)
+            if (bot === undefined) {
+              ctx.logger.info(`bot-source-github: observe only, would open a ticket for #${issue.number}`)
+              continue
+            }
+            const ticket = await ctx.bots.openTicket({
               routerSession: bot.routerSession,
               title: `#${issue.number} ${issue.title}`,
               instruction: ticketInstruction(config.repository, issue),
             })
+            await candidates.put(candidate.id, { ...candidate, state: 'opened', ticketId: ticket.id })
           }
           const handled = fresh.map(issue => String(issue.number)).reverse()
           await cursors.put(key, { seen: [...handled, ...current.seen].slice(0, config.maxSeen) })
