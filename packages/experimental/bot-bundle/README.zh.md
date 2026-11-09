@@ -27,7 +27,7 @@ kind: "package-bundle"
 dsh plugin --profile web add @deepseek-ai/dsh-bot-bundle
 ```
 
-用 **Bot router** preset 开启对话，调用 `bot_create`，再让 `bot_open_ticket` 所属的 Bot 使用 `preset: "bot-worker"`，这样每个工单的会话都会挂载执行组合。token、存储与执行行为属于 `dsh-bot`。
+用 **Bot router** preset 开启对话，调用 `bot_create`，再让 `bot_open_ticket` 所属的 Bot 使用 `preset: "bot-worker"`，这样每个工单的会话都会挂载执行组合。token、存储与执行行为属于 `dsh-bot`。审阅拉取请求时改用 `preset: "bot-reviewer"` 创建 Bot：它挂载只读文件访问与 shell，审阅因此可以检查 worktree 并运行检查，而没有会改动检出的工具。
 
 <a id="presets"></a>
 ## Preset

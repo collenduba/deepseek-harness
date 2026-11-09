@@ -27,7 +27,7 @@ Install the bundle into a profile through the Plugins page or the CLI:
 dsh plugin --profile web add @deepseek-ai/dsh-bot-bundle
 ```
 
-Start a conversation with the **Bot router** preset, call `bot_create`, then pass `preset: "bot-worker"` to `bot_open_ticket`'s bot, so each ticket's Session mounts the worker composition. Tokens, storage, and worker behavior belong to `dsh-bot`.
+Start a conversation with the **Bot router** preset, call `bot_create`, then pass `preset: "bot-worker"` to `bot_open_ticket`'s bot, so each ticket's Session mounts the worker composition. Tokens, storage, and worker behavior belong to `dsh-bot`. For pull-request review, create the bot with `preset: "bot-reviewer"` instead: it mounts read-only file access and shell, so a review can inspect a worktree and run checks without any tool that edits the checkout.
 
 <a id="presets"></a>
 ## Presets
