@@ -141,6 +141,16 @@ export function capabilityAllows(granted: readonly string[] | undefined, toolNam
   return granted.includes(toolName) || BOT_PROTOCOL_TOOLS.includes(toolName)
 }
 
+/**
+ * Whether an action is on the bot's hard floor.
+ * @param actions - the bot's floor; undefined means no floor.
+ * @param action - action name from a request.
+ * @returns true when a person must perform the action.
+ */
+export function isHardFloor(actions: readonly string[] | undefined, action: string): boolean {
+  return actions?.includes(action) ?? false
+}
+
 /** Current time as the ISO-8601 string every stored timestamp uses. */
 function now(): string {
   return new Date().toISOString()
@@ -232,6 +242,7 @@ export class BotRegistry extends Service {
     if (!isAbsolute(workspace)) throw new TypeError(`workspace must be absolute, got '${workspace}'`)
     const preset = input.preset === undefined ? undefined : requireText(input.preset, 'preset')
     const tools = input.tools === undefined ? undefined : input.tools.map(tool => requireText(tool, 'tools'))
+    const hardFloor = input.hardFloor === undefined ? undefined : input.hardFloor.map(action => requireText(action, 'hardFloor'))
     for (const [, bot] of this.botsTable.entries()) {
       if (String(bot.routerSession) !== String(input.routerSession)) continue
       if (bot.name === name) throw new Error(`this Session already owns a bot named '${name}'`)
@@ -245,6 +256,7 @@ export class BotRegistry extends Service {
       routerSession: input.routerSession,
       ...(preset === undefined ? {} : { preset }),
       ...(tools === undefined ? {} : { tools }),
+      ...(hardFloor === undefined ? {} : { hardFloor }),
       status: 'active',
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -541,6 +553,10 @@ export class BotRegistry extends Service {
   async requestApproval(ticketId: TicketId, action: string, payload: string): Promise<BotApprovalRecord> {
     const ticket = this.ticketsTable.get(ticketId)
     if (ticket === undefined) throw new Error(`unknown ticket '${ticketId}'`)
+    const bot = this.botsTable.get(ticket.botId)
+    if (bot !== undefined && isHardFloor(bot.hardFloor, action)) {
+      throw new Error(`'${action}' is on this bot's hard floor: a person must perform it, so the bot may not request approval`)
+    }
     const text = requireText(payload, 'payload')
     const record: BotApprovalRecord = {
       id: brandString<BotApprovalId>(`approval-${randomUUID()}`),
@@ -568,6 +584,10 @@ export class BotRegistry extends Service {
     const current = this.approvalsTable.get(id)
     if (current === undefined) throw new Error(`unknown approval '${id}'`)
     if (current.status !== 'pending') throw new Error(`approval '${id}' is already ${current.status}`)
+    const owner = this.botsTable.get(current.botId)
+    if (owner !== undefined && isHardFloor(owner.hardFloor, current.action)) {
+      throw new Error(`'${current.action}' is on this bot's hard floor: a person must perform it, so this request cannot be approved`)
+    }
     const updated = await this.approvalsTable.update(id, record => ({
       ...record,
       status: decision,
@@ -665,6 +685,7 @@ export class BotRegistry extends Service {
           workspace: { type: 'string', required: true, description: 'Absolute directory the bot\'s workers run in.' },
           preset: { type: 'string', description: 'Optional worker agent preset id. Omit to use the deployment default.' },
           tools: { type: 'array', items: { type: 'string' }, description: 'Optional tool names its workers may call. Omit to allow every tool.' },
+          hard_floor: { type: 'array', items: { type: 'string' }, description: 'Optional action names a person must perform; the bot may never request them.' },
         },
         output: {
           schema: {
@@ -686,6 +707,7 @@ export class BotRegistry extends Service {
             workspace: args.workspace,
             ...(args.preset === undefined ? {} : { preset: args.preset }),
             ...(args.tools === undefined ? {} : { tools: args.tools }),
+            ...(args.hard_floor === undefined ? {} : { hardFloor: args.hard_floor }),
             routerSession: exec.agent.session.id,
           })
           return { botId: bot.id, name: bot.name, workspace: bot.workspace }

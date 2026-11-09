@@ -37,6 +37,7 @@ export const botRecordSchema = z.object({
   routerSession: sessionId,
   preset: z.string().min(1).optional(),
   tools: z.array(z.string().min(1)).optional(),
+  hardFloor: z.array(z.string().min(1)).optional(),
   status: z.enum(['active', 'paused']),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
@@ -95,13 +96,13 @@ export const noticeRecordSchema = z.object({
 
 /**
  * The `bot` domain: bots, tickets, remembered notes, approval requests, and
- * notices, with no global state. Version 6 adds the optional worker tool
- * allowlist on a bot; versions 1 through 5 load unchanged.
+ * notices, with no global state. Version 7 adds the optional hard-floor actions
+ * on a bot; versions 1 through 6 load unchanged.
  */
 export const botDomainSpec = defineDomain({
   name: 'bot',
-  version: 6,
-  compatibleVersions: [1, 2, 3, 4, 5],
+  version: 7,
+  compatibleVersions: [1, 2, 3, 4, 5, 6],
   tables: {
     bots: domainTable<BotId, BotRecord>(botRecordSchema),
     tickets: domainTable<TicketId, TicketRecord>(ticketRecordSchema),

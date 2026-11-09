@@ -9,7 +9,7 @@ import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import BotRegistry, {
   approvalRecordSchema, botProjection, botRecordSchema, isQuietAt, memoryRecordSchema, parseQuietHours,
-  ticketRecordSchema, capabilityAllows, requireApproval, workerInstruction,
+  ticketRecordSchema, capabilityAllows, isHardFloor, requireApproval, workerInstruction,
 } from '../src/index.ts'
 import type { BotApprovalId, BotId, BotMemoryId, BotProjectionState, TicketId } from '../src/index.ts'
 
@@ -73,8 +73,10 @@ describe('bot records', () => {
     const bot = await ctx.bots.create({
       name: 'reviewer', job: 'Review pull requests', workspace: '/tmp/work', routerSession: ROUTER,
       tools: ['read', 'grep', 'bash'],
+      hardFloor: ['transfer-funds'],
     })
     expect(bot.tools).toEqual(['read', 'grep', 'bash'])
+    expect(bot.hardFloor).toEqual(['transfer-funds'])
     expect(ctx.bots.list()[0]?.tools).toEqual(['read', 'grep', 'bash'])
   })
 
@@ -223,6 +225,19 @@ describe('approvals', () => {
       .rejects.toThrow(/unknown approval/)
   })
 
+  it('refuses a hard-floor action before a request is stored', async () => {
+    const { ctx } = await harness()
+    const bot = await ctx.bots.create({
+      name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER, hardFloor: ['transfer-funds'],
+    })
+    const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+    await expect(ctx.bots.requestApproval(ticket.id, 'transfer-funds', '{}'))
+      .rejects.toThrow(/hard floor/)
+    const allowed = await ctx.bots.requestApproval(ticket.id, 'merge', '{}')
+    expect(allowed.status).toBe('pending')
+    expect(ctx.bots.approvalsOf(bot.id)).toHaveLength(1)
+  })
+
   it('rejects an approval record with an unknown status', () => {
     const record = {
       id: 'approval-1', botId: 'bot-1', ticketId: 'ticket-1', action: 'merge',
@@ -234,6 +249,12 @@ describe('approvals', () => {
 })
 
 describe('approval gate', () => {
+  it('recognises hard-floor actions', () => {
+    expect(isHardFloor(undefined, 'merge')).toBe(false)
+    expect(isHardFloor(['merge'], 'merge')).toBe(true)
+    expect(isHardFloor(['merge'], 'post')).toBe(false)
+  })
+
   it('applies a bot tool allowlist but keeps the reporting tools', () => {
     expect(capabilityAllows(undefined, 'bash')).toBe(true)
     expect(capabilityAllows(['read', 'bash'], 'bash')).toBe(true)
@@ -320,12 +341,13 @@ describe('worker instructions', () => {
       text: 'Run the unit tests before opening a pull request.',
       createdAt: '2026-11-06T00:00:00.000Z',
     }
-    const text = workerInstruction({ ...bot, tools: ['read', 'bash'] }, ticket, [memory])
+    const text = workerInstruction({ ...bot, tools: ['read', 'bash'], hardFloor: ['transfer-funds'] }, ticket, [memory])
     expect(text).toContain('ticket-1')
     expect(text).toContain('Review the diff and report.')
     expect(text).toContain('bot_report')
     expect(text).toContain('Run the unit tests before opening a pull request.')
     expect(text).toContain('You may call only these tools: read, bash, plus the bot reporting tools.')
+    expect(text).toContain('do not request approval for them: transfer-funds')
     expect(workerInstruction(bot, ticket, [], { botName: 'planner', ticketId: brandString<TicketId>('ticket-0') }))
       .toContain('handed off from ticket ticket-0 of bot "planner"')
   })

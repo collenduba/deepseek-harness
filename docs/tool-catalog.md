@@ -604,6 +604,13 @@ Create a durable bot in this conversation. The conversation becomes the bot's ro
       "items": {
         "type": "string"
       }
+    },
+    "hard_floor": {
+      "type": "array",
+      "description": "Optional action names a person must perform; the bot may never request them.",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "required": [
