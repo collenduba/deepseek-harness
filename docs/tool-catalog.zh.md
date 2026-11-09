@@ -720,9 +720,7 @@ Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/
 
 ### `bot_open_ticket`
 
-给本对话的 Bot 一个工作单元。执行会话运行指令并回报到这里。当请求足够具体、无需再提问时使用。
-
-Give this conversation's bot one unit of work. A worker Session runs the instruction and reports back here. Use this when the request is concrete enough to execute without further questions.
+给这个对话的 Bot 一件工作。一个执行会话运行该指令并在这里报告。当请求足够具体、无需进一步提问即可执行时使用。
 
 ```json
 {
@@ -735,6 +733,10 @@ Give this conversation's bot one unit of work. A worker Session runs the instruc
     "instruction": {
       "type": "string",
       "description": "The complete instruction the worker executes, including every fact it needs."
+    },
+    "workspace": {
+      "type": "string",
+      "description": "Optional absolute working directory for this ticket's worker."
     }
   },
   "required": [

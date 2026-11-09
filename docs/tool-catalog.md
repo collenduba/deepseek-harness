@@ -723,6 +723,10 @@ Give this conversation's bot one unit of work. A worker Session runs the instruc
     "instruction": {
       "type": "string",
       "description": "The complete instruction the worker executes, including every fact it needs."
+    },
+    "workspace": {
+      "type": "string",
+      "description": "Optional absolute working directory for this ticket's worker."
     }
   },
   "required": [

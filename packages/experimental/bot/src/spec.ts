@@ -52,6 +52,7 @@ export const ticketRecordSchema = z.object({
   instruction: z.string().min(1),
   stage: z.enum(['queued', 'working', 'waiting', 'ready', 'blocked', 'failed']),
   routerSession: sessionId,
+  workspace: z.string().min(1).optional(),
   workerSession: sessionId.optional(),
   summary: z.string().optional(),
   parentTicket: ticketId.optional(),
@@ -99,13 +100,13 @@ export const noticeRecordSchema = z.object({
 
 /**
  * The `bot` domain: bots, tickets, remembered notes, approval requests, and
- * notices, with no global state. Version 10 adds optional blocked shell
- * command patterns on a bot; versions 1 through 9 load unchanged.
+ * notices, with no global state. Version 11 adds an optional per-ticket
+ * workspace; versions 1 through 10 load unchanged.
  */
 export const botDomainSpec = defineDomain({
   name: 'bot',
-  version: 10,
-  compatibleVersions: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+  version: 11,
+  compatibleVersions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
   tables: {
     bots: domainTable<BotId, BotRecord>(botRecordSchema),
     tickets: domainTable<TicketId, TicketRecord>(ticketRecordSchema),

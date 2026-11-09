@@ -75,12 +75,16 @@ async function harness(config: {
   ctx.provide('agentDefaultModel' as string, { currentSelection: () => ({ provider: 'mock', model: 'mock' }) })
   ctx.provide('sessionTitle' as string, { rename: () => {} })
   ctx.provide('sessionProjections' as string, { register: async () => ({}) })
+  const workspaces: string[] = []
   ctx.provide('workspaceRegistry' as string, {
-    create: async (path: string) => ({
-      path,
-      attachSession: async () => {},
-      detachSession: async () => {},
-    }),
+    create: async (path: string) => {
+      workspaces.push(path)
+      return ({
+        path,
+        attachSession: async () => {},
+        detachSession: async () => {},
+      })
+    },
   })
   if (config.seed !== undefined) await config.seed(facility)
   await ctx.plugin(BotRegistry, {
@@ -93,7 +97,7 @@ async function harness(config: {
     maxHandoffDepth: config.maxHandoffDepth ?? 3,
     workerTimeoutMinutes: config.workerTimeoutMinutes ?? 30,
   })
-  return { ctx, followups, workers }
+  return { ctx, followups, workers, workspaces }
 }
 
 describe('bot records', () => {
@@ -467,6 +471,19 @@ describe('tickets', () => {
     expect(ctx.bots.ticketsOf(botId)[0]?.stage).toBe('blocked')
     expect(ctx.bots.ticketsOf(botId)[0]?.summary).toContain('not running')
     expect(followups.some(text => text.includes('not running'))).toBe(true)
+  })
+
+  it('launches a ticket in its own workspace when one is given', async () => {
+    const { ctx, workspaces } = await harness()
+    await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
+    const ticket = await ctx.bots.openTicket({
+      routerSession: ROUTER, title: 'Isolated', instruction: 'Work.', workspace: '/tmp/ticket-work',
+    })
+    expect(ticket.workspace).toBe('/tmp/ticket-work')
+    expect(workspaces.at(-1)).toBe('/tmp/ticket-work')
+    await expect(ctx.bots.openTicket({
+      routerSession: ROUTER, title: 'Bad', instruction: 'Work.', workspace: 'relative/dir',
+    })).rejects.toThrow(/must be absolute/)
   })
 
   it('refuses to open a ticket when no bot is bound to the Session', async () => {
