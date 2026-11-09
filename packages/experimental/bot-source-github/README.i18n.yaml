@@ -9,20 +9,20 @@
   en: b6aeae77f5373538
   zh: 7f24796a0452d08a
 /deepseek-ai-dsh-bot-source-github/summary:
-  en: 2c83e76894e50146
-  zh: a3cf51310182bf73
+  en: 5f2e6572e6ae35db
+  zh: 2980e8e7b9b7523e
 /deepseek-ai-dsh-bot-source-github/table-of-contents:
   en: 2fee9973f19f9401
   zh: 57488629c9a54c40
 /deepseek-ai-dsh-bot-source-github/use-this-package:
-  en: 8b9908564fa25b24
-  zh: 6e2b44e992f2b397
+  en: 10b11b26913e9cfc
+  zh: a2f9cba1d9e800e3
 /deepseek-ai-dsh-bot-source-github/use-this-package/reviewing-candidates:
   en: a4e07828c51ee533
   zh: 143ffdf86d12d123
 /deepseek-ai-dsh-bot-source-github/understand-the-implementation:
-  en: dad9e538781cec11
-  zh: 3db5e63c191387b0
+  en: 08e7f6265c070fbf
+  zh: 923da7c904be0b5a
 /deepseek-ai-dsh-bot-source-github/model-experience:
   en: 215e7ba838619b7b
   zh: a311da3843709f90
@@ -38,6 +38,18 @@
 /deepseek-ai-dsh-bot-source-github/model-experience/candidate-tools/kv-cache-effect:
   en: 2a34a94c061bb1a8
   zh: 56a32f553eafafef
+/deepseek-ai-dsh-bot-source-github/model-experience/pull-request-instructions:
+  en: 5aaddc33eb4c2a1b
+  zh: 63f9c2d26ec645d1
+/deepseek-ai-dsh-bot-source-github/model-experience/pull-request-instructions/what-the-model-sees:
+  en: ee858b8a979e56d6
+  zh: 2dc297ca2cb5e7d4
+/deepseek-ai-dsh-bot-source-github/model-experience/pull-request-instructions/token-effect:
+  en: a8363c25b1dc64c6
+  zh: 13dd4f555df8ba02
+/deepseek-ai-dsh-bot-source-github/model-experience/pull-request-instructions/kv-cache-effect:
+  en: 70ba145871f4b1a7
+  zh: d01116a3cbd5c65a
 /deepseek-ai-dsh-bot-source-github/model-experience/ticket-instructions:
   en: 7268a7203b054dc3
   zh: d95e1821a0714031

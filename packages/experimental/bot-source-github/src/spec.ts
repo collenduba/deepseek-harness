@@ -30,6 +30,8 @@ export const candidateSchema = z.object({
   body: z.string().default(''),
   url: z.string().min(1),
   state: z.enum(['would-open', 'opened', 'filtered']),
+  kind: z.enum(['issue', 'pull-request']).default('issue'),
+  headSha: z.string().min(1).optional(),
   ticketId: z.string().min(1).optional(),
   createdAt: z.string().min(1),
   commentedAt: z.string().min(1).optional(),
@@ -38,11 +40,11 @@ export const candidateSchema = z.object({
 /** Stored candidate. */
 export type SourceCandidate = z.infer<typeof candidateSchema>
 
-/** The source's own domain, version 5: candidates keep the issue body for promotion. */
+/** The source's own domain, version 6: candidates can describe a pull request revision. */
 export const sourceDomainSpec = defineDomain({
   name: 'bot_source_github',
-  version: 5,
-  compatibleVersions: [1, 2, 3, 4],
+  version: 6,
+  compatibleVersions: [1, 2, 3, 4, 5],
   tables: {
     cursors: domainTable<SourceKey, SourceCursor>(cursorSchema),
     candidates: domainTable<CandidateId, SourceCandidate>(candidateSchema),

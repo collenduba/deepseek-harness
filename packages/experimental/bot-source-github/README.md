@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Watches one GitHub repository through the `gh` CLI and opens one bot ticket per new open issue. The configured bot's worker Session receives the issue title, URL, and body as its instruction, and reports back in the bot's conversation. Polling is the whole model: nothing runs while the Host is stopped, and there is no write-back to GitHub.
+Watches one GitHub repository through the `gh` CLI and opens one bot ticket per new open issue, or per new pull-request revision when `target` is `pull-requests`. The configured bot's worker Session receives the issue title, URL, and body as its instruction, and reports back in the bot's conversation. Polling is the whole model: nothing runs while the Host is stopped, and there is no write-back to GitHub.
 
 ## Table of Contents
 
@@ -32,6 +32,7 @@ Mount the plugin with a bot and a repository. The shipped `@deepseek-ai/dsh-bot-
     query: 'is:issue is:open'
     pollSeconds: 60
     mode: observe
+    target: issues
 ```
 
 | Field | Default | Meaning |
@@ -44,6 +45,8 @@ Mount the plugin with a bot and a repository. The shipped `@deepseek-ai/dsh-bot-
 | `timeoutMs` | `30000` | Deadline for one `gh` invocation. |
 | `backlog` | `ignore` | `ignore` marks existing issues handled at startup; `open` tickets every open issue on the first poll. |
 | `mode` | `observe` | `observe` records a candidate per new issue and opens nothing; `auto` opens the ticket. |
+| `target` | `issues` | `issues` watches open issues; `pull-requests` watches open pull-request revisions. |
+| `includeDrafts` | `false` | Review draft pull requests too. |
 | `writeBack` | `false` | Comment each finished ticket result on its issue, once. |
 | `allowedAuthors` | `[]` | Logins allowed to open work; empty admits everyone. Others are recorded `filtered` and never open a ticket. |
 | `autostart` | `true` | Start the poll loop on mount. Set `false` to register the tools and drive the exported `runSource` yourself. |
@@ -71,6 +74,7 @@ The `gh` CLI must be authenticated on the Host. The source inherits the scrubbed
 - **Cursor and candidates.** The `bot_source_github` domain (version 4) stores one `{ seen: string[] }` record per repository and one candidate record per new issue with a deterministic id. The first poll writes the seed; every later poll compares against it. Versions 1 through 3 load unchanged.
 - **Delivery.** Each fresh issue records a candidate. In `auto` mode the source opens one ticket titled `#<number> <title>`, marks the candidate `opened` with the ticket id, and reports as before. In `observe` mode it logs what it would have done and leaves the candidate `would-open`. Issues are handled oldest first, and the cursor advances only after the whole batch is recorded, so a failure retries the batch on the next poll.
 - **Testability.** The poll loop takes its list and comment effects as arguments, so a test runs observe, auto, admission, and write-back against real storage with no `gh` process.
+- **Pull requests.** With `target: pull-requests`, each `number@head` pair is its own candidate, so a new push is a new review and an old revision is never reopened. Drafts are skipped unless `includeDrafts` is on. The ticket instruction asks the worker to create a worktree for the head SHA, review against the base, follow the repository's conventions, run cheap checks, post one `gh pr comment` summary, and never push or merge.
 - **Admission.** An issue whose author is not in `allowedAuthors` still records a candidate, marked `filtered`, and never opens a ticket in either mode. The check is a case-insensitive login comparison.
 - **Write-back.** With `writeBack` on, every poll scans this source's candidates for tickets that reached `ready`, `failed`, or `blocked` and have no comment receipt yet, posts one comment on the issue, and records when it did. A failed comment is logged and retried on the next poll; a delivered one is never repeated.
 - **Failures.** A failed `gh` call or a missing bot is logged and retried at the next interval; the loop never exits the plugin fiber, and disposal aborts the in-flight poll and waits for the loop.
@@ -92,6 +96,20 @@ Two schemas per Agent that mounts the plugin, and one short result per call.
 #### KV Cache effect
 
 The schemas are static for the mount lifetime; a result appends to the conversation.
+
+### Pull-request instructions
+
+#### What the model sees
+
+One user message per reviewed revision: the PR number, title, URL, head SHA and base branch, a `git worktree add ../review-<n>-<sha>` setup line, the diff command, the repository-convention reminder, the checks to run, and the exact `gh pr comment` command with the requested finding format.
+
+#### Token effect
+
+One instruction per revision in its worker Session; the PR title and body are not included, so the worker reads them from `gh` if it needs them.
+
+#### KV Cache effect
+
+Each review starts a new Session, so the instruction establishes that Session's prefix.
 
 ### Ticket instructions
 

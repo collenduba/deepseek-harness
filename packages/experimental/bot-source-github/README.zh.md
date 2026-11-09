@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-通过 `gh` CLI 观察一个 GitHub 仓库，为每个新的开放 issue 打开一条 Bot 工单。指定 Bot 的执行会话收到 issue 标题、URL 与正文作为指令，并在 Bot 的对话中回报。轮询就是全部模型：Host 停止时什么都不运行，也不会写回 GitHub。
+通过 `gh` CLI 观察一个 GitHub 仓库，为每个新的开放 issue 打开一条 Bot 工单；当 `target` 为 `pull-requests` 时，为每个新的拉取请求修订打开工单。指定 Bot 的执行会话收到 issue 标题、URL 与正文作为指令，并在 Bot 的对话中回报。轮询就是全部模型：Host 停止时什么都不运行，也不会写回 GitHub。
 
 ## 目录
 
@@ -32,6 +32,7 @@ kind: "package-reference"
     query: 'is:issue is:open'
     pollSeconds: 60
     mode: observe
+    target: issues
 ```
 
 | 字段 | 默认 | 含义 |
@@ -44,6 +45,8 @@ kind: "package-reference"
 | `timeoutMs` | `30000` | 单次 `gh` 调用时限。 |
 | `backlog` | `ignore` | `ignore` 在启动时把已有 issue 标记为已处理；`open` 在首次轮询时为所有开放 issue 开工单。 |
 | `mode` | `observe` | `observe` 为每个新 issue 记录候选且不开工单；`auto` 开工单。 |
+| `target` | `issues` | `issues` 观察开放 issue；`pull-requests` 观察开放拉取请求的修订。 |
+| `includeDrafts` | `false` | 是否也审阅草稿拉取请求。 |
 | `writeBack` | `false` | 工单结束后在对应 issue 上评论一次结果。 |
 | `allowedAuthors` | `[]` | 允许发起工作的登录名；空表示所有人。其他人只会记录为 `filtered`，不会开工单。 |
 | `autostart` | `true` | 挂载时启动轮询。设为 `false` 时只注册工具，由嵌入方自行调用导出的 `runSource`。 |
@@ -71,6 +74,7 @@ Host 上的 `gh` CLI 必须已认证。本来源继承清理过的进程环境�
 - **游标与候选。** `bot_source_github` 域（版本 4）为每个仓库保存一条 `{ seen: string[] }` 记录，并为每个新 issue 保存一条确定性 id 的候选记录。首次轮询写入种子；之后每次轮询与之比较。版本 1 到版本 3 的存储原样加载。
 - **投递。** 每个新 issue 先记录候选。`auto` 模式下打开一条标题为 `#<number> <title>` 的工单，把候选标为 `opened` 并附上工单 id，其余行为不变。`observe` 模式下只记录日志、候选保持 `would-open`。issue 按最旧优先处理，且整批记录完成后游标才前进，因此失败会在下次轮询重试整批。
 - **可测试性。** 轮询循环的列表与评论效果以参数传入，测试因此可以在没有 `gh` 进程的情况下，用真实存储覆盖观察、自动、准入与写回。
+- **拉取请求。** `target: pull-requests` 时，每个 `number@head` 组合是独立候选，因此新推送就是一次新审阅，旧修订不会被重开。默认跳过草稿，除非开启 `includeDrafts`。工单指令要求执行者为 head SHA 建立 worktree、对照 base 审阅、遵循仓库约定、运行成本低的检查、用一次 `gh pr comment` 发布摘要，并且绝不推送或合并。
 - **准入。** 作者不在 `allowedAuthors` 中的 issue 仍会记录候选，但标记为 `filtered`，两种模式下都不会开工单。比较为大小写不敏感的登录名。
 - **写回。** 开启 `writeBack` 后，每次轮询检查本来源的候选：工单到达 `ready`、`failed` 或 `blocked` 且尚无评论回执时，在 issue 上发布一条评论并记录时间。失败的评论会记录日志并在下次轮询重试；已投递的不会重复。
 - **失败。** `gh` 调用失败或缺少 Bot 时记录日志并在下一个间隔重试；循环不会让插件 fiber 退出，释放时会中止进行中的轮询并等待循环结束。
@@ -92,6 +96,20 @@ Host 上的 `gh` CLI 必须已认证。本来源继承清理过的进程环境�
 #### KV Cache 影响
 
 schema 在挂载期间静态；结果追加到对话。
+
+### 拉取请求指令
+
+#### 模型看到什么
+
+每个被审阅的修订一条用户消息：PR 编号、标题、URL、head SHA 与 base 分支、`git worktree add ../review-<n>-<sha>` 建立行、diff 命令、仓库约定提醒、要运行的检查，以及要求的发现格式与确切的 `gh pr comment` 命令。
+
+#### Token 影响
+
+每个修订一条指令，位于其执行会话；不包含 PR 标题与正文，执行者需要时自行通过 `gh` 读取。
+
+#### KV Cache 影响
+
+每次审阅开启新会话，因此指令建立该会话的前缀。
 
 ### 工单指令
 
