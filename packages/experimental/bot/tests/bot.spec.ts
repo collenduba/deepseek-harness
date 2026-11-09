@@ -384,6 +384,45 @@ describe('tickets', () => {
     }
   })
 
+  it('restarts the clock when an answer reaches a waiting worker', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, workers } = await harness({ workerTimeoutMinutes: 1 })
+      const bot = await ctx.bots.create({
+        name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER,
+      })
+      const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+      const approval = await ctx.bots.requestApproval(ticket.id, 'merge', '{}')
+      await ctx.bots.report(ticket.workerSession!, ticket.id, { stage: 'waiting', summary: 'Need a decision.' })
+      await vi.advanceTimersByTimeAsync(50_000)
+      await ctx.bots.decideApproval(approval.id, 'approved')
+      await vi.advanceTimersByTimeAsync(50_000)
+      expect(workers.get(ticket.workerSession!)?.cancel).not.toHaveBeenCalled()
+      expect(ctx.bots.ticketsOf(bot.id)[0]?.stage).toBe('waiting')
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(workers.get(ticket.workerSession!)?.cancel).toHaveBeenCalled()
+      expect(ctx.bots.ticketsOf(bot.id)[0]?.stage).toBe('blocked')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('drops the budget when its bot is archived', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, workers } = await harness({ workerTimeoutMinutes: 1 })
+      const bot = await ctx.bots.create({
+        name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER,
+      })
+      const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+      await ctx.bots.archive(bot.id)
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(workers.get(ticket.workerSession!)?.cancel).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('marks a stranded ticket as blocked during startup reconciliation', async () => {
     const botId = brandString<BotId>('bot-seeded')
     const ticketId = brandString<TicketId>('ticket-seeded')

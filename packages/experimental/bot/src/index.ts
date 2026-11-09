@@ -222,7 +222,7 @@ export class BotRegistry extends Service {
     maxHandoffDepth: z.natural().max(10).default(3)
       .description('Deepest handoff chain a ticket may belong to.'),
     workerTimeoutMinutes: z.natural().max(720).default(30)
-      .description('Minutes one worker may run before it is cancelled and its ticket reports blocked; 0 disables the budget.'),
+      .description('Minutes a worker turn may run before it is cancelled; an answer restarts the clock, and 0 disables the budget.'),
   })
 
   private botsTable!: KvTable<BotId, BotRecord>
@@ -238,7 +238,9 @@ export class BotRegistry extends Service {
   private readonly maxWorkersPerBot: number
   private readonly maxHandoffDepth: number
   private readonly workerTimeoutMinutes: number
-  private readonly budgets = new Map<string, ReturnType<typeof setTimeout>>()
+  private readonly budgets = new Map<TicketId, ReturnType<typeof setTimeout>>()
+  private reconciling = false
+  private readonly pumping = new Set<BotId>()
 
   constructor(ctx: Context, config: Partial<BotAttentionConfig> = {}) {
     super(ctx, 'bots')
@@ -453,16 +455,21 @@ export class BotRegistry extends Service {
   /** Launch queued tickets for one bot while it has free slots. */
   private async pumpQueue(botId: BotId): Promise<void> {
     const bot = this.botsTable.get(botId)
-    if (bot === undefined || bot.status !== 'active') return
-    let active = this.activeWorkers(botId)
-    const queued = [...this.ticketsTable.entries()]
-      .map(([, ticket]) => ticket)
-      .filter(ticket => String(ticket.botId) === String(botId) && ticket.stage === 'queued')
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-    for (const ticket of queued) {
-      if (active >= this.maxWorkersPerBot) break
-      await this.launchTicket(bot, ticket)
-      active += 1
+    if (bot === undefined || bot.status !== 'active' || this.pumping.has(botId)) return
+    this.pumping.add(botId)
+    try {
+      let active = this.activeWorkers(botId)
+      const queued = [...this.ticketsTable.entries()]
+        .map(([, ticket]) => ticket)
+        .filter(ticket => String(ticket.botId) === String(botId) && ticket.stage === 'queued')
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      for (const ticket of queued) {
+        if (active >= this.maxWorkersPerBot) break
+        await this.launchTicket(bot, ticket)
+        active += 1
+      }
+    } finally {
+      this.pumping.delete(botId)
     }
   }
 
@@ -488,8 +495,6 @@ export class BotRegistry extends Service {
     }))
     if (report.stage === 'ready' || report.stage === 'failed' || report.stage === 'blocked') {
       this.clearBudget(ticketId)
-    } else {
-      this.armBudget(ticketId)
     }
     await this.notifyRouter(ticket, report.stage, summary)
     if (report.stage === 'ready' || report.stage === 'failed' || report.stage === 'blocked') {
@@ -508,7 +513,9 @@ export class BotRegistry extends Service {
   async archive(botId: BotId): Promise<{ name: string; archivedTickets: number }> {
     const bot = this.botsTable.get(botId)
     if (bot === undefined) throw new Error(`unknown bot '${botId}'`)
-    const archivedTickets = await this.ticketsTable.deleteMany(this.ticketsOf(botId).map(ticket => ticket.id))
+    const tickets = this.ticketsOf(botId)
+    for (const ticket of tickets) this.clearBudget(ticket.id)
+    const archivedTickets = await this.ticketsTable.deleteMany(tickets.map(ticket => ticket.id))
     await this.memoriesTable.deleteMany(this.memoriesOf(botId).map(memory => memory.id))
     await this.approvalsTable.deleteMany(this.approvalsOf(botId).map(approval => approval.id))
     await this.noticesTable.deleteMany(this.noticesOf(botId).map(notice => notice.id))
@@ -619,16 +626,15 @@ export class BotRegistry extends Service {
       if (first === undefined) continue
       const router = this.ctx.agents.get(first.routerSession)
       const text = `Held updates (${list.length}):\n${list.map(notice => `- ${notice.summary}`).join('\n')}`
-      if (router !== undefined) {
-        try {
-          router.followup(createUserMessage({
-            content: [{ type: 'text', text }],
-            source: { kind: 'bot', botId: first.botId, form: 'notice', summary: `${list.length} held updates` },
-          }))
-        } catch (error: unknown) {
-          this.ctx.logger.warn(`bot: digest for '${String(first.routerSession)}' failed: ${String(error)}`)
-          continue
-        }
+      if (router === undefined) continue
+      try {
+        router.followup(createUserMessage({
+          content: [{ type: 'text', text }],
+          source: { kind: 'bot', botId: first.botId, form: 'notice', summary: `${list.length} held updates` },
+        }))
+      } catch (error: unknown) {
+        this.ctx.logger.warn(`bot: digest for '${String(first.routerSession)}' failed: ${String(error)}`)
+        continue
       }
       for (const notice of list) {
         await this.noticesTable.update(notice.id, record => ({ ...record, deliveredAt: now() }))
@@ -716,6 +722,7 @@ export class BotRegistry extends Service {
           content: [{ type: 'text', text: `Approval ${id} was ${decision}.${updated.note === undefined ? '' : ` Note: ${updated.note}`}` }],
           source: { kind: 'bot', botId: current.botId, ticketId: current.ticketId, form: 'notice', summary: `Approval ${id} ${decision}` },
         }))
+        this.armBudget(current.ticketId)
       } catch (error: unknown) {
         this.ctx.logger.warn(`bot: approval notice for '${id}' failed: ${String(error)}`)
       }
@@ -783,12 +790,11 @@ export class BotRegistry extends Service {
     })
     if (updated.stage !== 'blocked' || updated.summary !== summary) return
     const committed = this.ticketsTable.get(ticketId)
-    if (committed !== undefined && committed.stage === 'blocked' && committed.summary === summary) {
-      const agent = committed.workerSession === undefined ? undefined : this.ctx.get('agents')?.get(committed.workerSession)
-      if (agent !== undefined && agent.status === 'running') agent.cancel({ kind: 'user' })
-    }
-    await this.notifyRouter(updated, 'blocked', summary)
-    await this.pumpQueue(updated.botId)
+    if (committed === undefined || committed.stage !== 'blocked' || committed.summary !== summary) return
+    const agent = committed.workerSession === undefined ? undefined : this.ctx.agents.get(committed.workerSession)
+    if (agent !== undefined && agent.status === 'running') agent.cancel({ kind: 'user' })
+    await this.notifyRouter(committed, 'blocked', summary)
+    await this.pumpQueue(committed.botId)
   }
 
   /**
@@ -796,24 +802,35 @@ export class BotRegistry extends Service {
    * Runs once at startup; a live worker is re-armed with a fresh budget.
    */
   async reconcile(): Promise<void> {
-    for (const [id, ticket] of [...this.ticketsTable.entries()]) {
-      if (ticket.stage !== 'working' && ticket.stage !== 'waiting') continue
-      const agent = ticket.workerSession === undefined ? undefined : this.ctx.get('agents')?.get(ticket.workerSession)
-      if (agent === undefined) {
-        const summary = 'worker is not running; the Host restarted or its Session ended'
-        const updated = await this.ticketsTable.update(id, (current) => {
-          if (current.stage !== 'working' && current.stage !== 'waiting') return current
-          return { ...current, stage: 'blocked', summary, updatedAt: now() }
-        })
-        if (updated.stage === 'blocked' && updated.summary === summary) {
-          await this.notifyRouter(updated, 'blocked', summary)
+    if (this.reconciling) return
+    this.reconciling = true
+    try {
+      for (const [id, ticket] of [...this.ticketsTable.entries()]) {
+        if (ticket.stage !== 'working' && ticket.stage !== 'waiting') continue
+        const agent = ticket.workerSession === undefined ? undefined : this.ctx.agents.get(ticket.workerSession)
+        if (agent === undefined) {
+          const summary = 'worker is not running; the Host restarted or its Session ended'
+          const updated = await this.ticketsTable.update(id, (current) => {
+            if (current.stage !== 'working' && current.stage !== 'waiting') return current
+            return { ...current, stage: 'blocked', summary, updatedAt: now() }
+          })
+          if (updated.stage === 'blocked' && updated.summary === summary) {
+            await this.notifyRouter(updated, 'blocked', summary)
+          }
+          continue
         }
-        continue
+        this.armBudget(id)
       }
-      this.armBudget(id)
-    }
-    for (const bot of this.list()) {
-      if (bot.status === 'active') await this.pumpQueue(bot.id)
+      for (const bot of this.list()) {
+        if (bot.status !== 'active') continue
+        try {
+          await this.pumpQueue(bot.id)
+        } catch (error: unknown) {
+          this.ctx.logger.warn(`bot: startup pump for bot '${bot.id}' failed: ${String(error)}`)
+        }
+      }
+    } finally {
+      this.reconciling = false
     }
   }
 
@@ -845,22 +862,22 @@ export class BotRegistry extends Service {
     if (isQuietAt(this.quietWindow, new Date())) return
     if (severity === 'digest' && this.holdResults) return
     const router = this.ctx.agents.get(record.routerSession)
-    if (router !== undefined) {
-      try {
-        router.followup(createUserMessage({
-          content: [{ type: 'text', text }],
-          source: {
-            kind: 'bot',
-            botId: record.botId,
-            ticketId: record.ticketId,
-            form: 'notice',
-            summary,
-            ...(stage === undefined ? {} : { stage }),
-          },
-        }))
-      } catch (error: unknown) {
-        this.ctx.logger.warn(`bot: router notice for ticket '${ticket.id}' failed: ${String(error)}`)
-      }
+    if (router === undefined) return
+    try {
+      router.followup(createUserMessage({
+        content: [{ type: 'text', text }],
+        source: {
+          kind: 'bot',
+          botId: record.botId,
+          ticketId: record.ticketId,
+          form: 'notice',
+          summary,
+          ...(stage === undefined ? {} : { stage }),
+        },
+      }))
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`bot: router notice for ticket '${ticket.id}' failed: ${String(error)}`)
+      return
     }
     await this.noticesTable.update(record.id, current => ({ ...current, deliveredAt: now() }))
   }
