@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { brandNumber, brandString } from '@deepseek-ai/dsh-brand'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
@@ -7,15 +7,19 @@ import { createToolResultMessage, createUserMessage, ToolCallId } from '@deepsee
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import BotRegistry, { approvalRecordSchema, botProjection, botRecordSchema, memoryRecordSchema, ticketRecordSchema, workerInstruction } from '../src/index.ts'
+import BotRegistry, {
+  approvalRecordSchema, botProjection, botRecordSchema, isQuietAt, memoryRecordSchema, parseQuietHours,
+  ticketRecordSchema, workerInstruction,
+} from '../src/index.ts'
 import type { BotApprovalId, BotId, BotMemoryId, BotProjectionState, TicketId } from '../src/index.ts'
 
 const ROUTER = brandString<SessionId>('router-1')
 const WORKER = brandString<SessionId>('worker-1')
 
 /** Boot a context with real storage, the bot registry, and fake peer services. */
-async function harness() {
+async function harness(config: { quietHours?: string; digestMinutes?: number } = {}) {
   const ctx = new Context()
+  onTestFinished(async () => { await ctx.fiber.dispose() })
   await ctx.plugin(Storage)
   ctx.storage.backend.register('memory', new MemoryStorageBackend())
   const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
@@ -42,7 +46,7 @@ async function harness() {
       detachSession: async () => {},
     }),
   })
-  await ctx.plugin(BotRegistry)
+  await ctx.plugin(BotRegistry, { quietHours: config.quietHours ?? '', digestMinutes: config.digestMinutes ?? 5 })
   return { ctx, followups }
 }
 
@@ -145,6 +149,7 @@ describe('tickets', () => {
     expect(ctx.bots.ticketsOf(bot.id)).toEqual([])
     expect(ctx.bots.memoriesOf(bot.id)).toEqual([])
     expect(ctx.bots.approvalsOf(bot.id)).toEqual([])
+    expect(ctx.bots.noticesOf(bot.id)).toEqual([])
     await expect(ctx.bots.archive(bot.id)).rejects.toThrow(/unknown bot/)
   })
 
@@ -188,6 +193,43 @@ describe('approvals', () => {
     }
     expect(approvalRecordSchema.safeParse(record).success).toBe(true)
     expect(approvalRecordSchema.safeParse({ ...record, status: 'maybe' }).success).toBe(false)
+  })
+})
+
+describe('attention', () => {
+  it('parses quiet windows and answers overnight boundaries', () => {
+    expect(parseQuietHours('')).toBeUndefined()
+    const window = parseQuietHours('22:00-07:00')
+    expect(window).toEqual({ start: 22 * 60, end: 7 * 60 })
+    expect(isQuietAt(window, new Date(2026, 10, 8, 23, 0))).toBe(true)
+    expect(isQuietAt(window, new Date(2026, 10, 8, 6, 59))).toBe(true)
+    expect(isQuietAt(window, new Date(2026, 10, 8, 7, 0))).toBe(false)
+    expect(isQuietAt(parseQuietHours('09:00-17:00'), new Date(2026, 10, 8, 12, 0))).toBe(true)
+    expect(() => parseQuietHours('22-7')).toThrow(/HH:MM/)
+  })
+
+  it('holds notices during quiet hours and delivers one digest afterwards', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date(2026, 10, 8, 23, 0))
+      const { ctx, followups } = await harness({ quietHours: '22:00-07:00' })
+      const bot = await ctx.bots.create({
+        name: 'reviewer', job: 'Review pull requests', workspace: '/tmp/work', routerSession: ROUTER,
+      })
+      const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review the diff.' })
+      await ctx.bots.report(ticket.workerSession!, ticket.id, { stage: 'ready', summary: 'Done.' })
+      expect(followups).toEqual([])
+      expect(ctx.bots.noticesOf(bot.id).filter(notice => notice.deliveredAt === undefined)).toHaveLength(1)
+
+      vi.setSystemTime(new Date(2026, 11, 9, 12, 0))
+      await ctx.bots.flushNotices()
+      expect(followups.some(text => text.includes('Held updates (1)'))).toBe(true)
+      expect(ctx.bots.noticesOf(bot.id).every(notice => notice.deliveredAt !== undefined)).toBe(true)
+      await ctx.bots.flushNotices()
+      expect(followups.filter(text => text.includes('Held updates'))).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
