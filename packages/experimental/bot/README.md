@@ -19,6 +19,10 @@ English | [中文](README.zh.md)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 
 <a id="use-this-package"></a>
+## Default behavior
+
+Every Session that mounts this service receives a standing system-prompt instruction: multi-step or multi-concern requests should go through `bot_create` and `bot_open_ticket` instead of being done inline, while single-file edits and single questions stay direct. Deployments can replace the text with the `leadInstructions` config; setting it to an empty string disables the nudge.
+
 ## Use this package
 
 Mount the plugin where `storageDomain`, `tools`, `agents`, `agentDefaultModel`, `sessionTitle`, and `workspaceRegistry` are available:

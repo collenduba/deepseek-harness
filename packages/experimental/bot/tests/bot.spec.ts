@@ -10,6 +10,7 @@ import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/help
 import BotRegistry, {
   approvalRecordSchema, botProjection, botRecordSchema, isQuietAt, memoryRecordSchema, parseQuietHours,
   ticketRecordSchema, blockedCommand, botDomainSpec, capabilityAllows, isHardFloor, requireApproval, workerInstruction,
+  BOT_LEAD_INSTRUCTIONS,
 } from '../src/index.ts'
 import type { BotApprovalId, BotId, BotMemoryId, BotProjectionState, TicketId } from '../src/index.ts'
 
@@ -42,6 +43,7 @@ async function harness(config: {
   }
   const toolDefs: CapturedTool[] = []
   const instructions: string[] = []
+  const promptSections: { name: string; text: string }[] = []
   const followups: string[] = []
   const pushNotice = (message: {
     content: { type: string; text: string }[]
@@ -85,6 +87,13 @@ async function harness(config: {
       : undefined),
   })
   ctx.provide('agentDefaultModel' as string, { currentSelection: () => ({ provider: 'mock', model: 'mock' }) })
+  ctx.provide('systemPrompt' as string, {
+    section: (section: { name: string; text: string }) => {
+      promptSections.push({ name: section.name, text: section.text })
+      return () => {}
+    },
+    getSectionOrder: () => 100,
+  })
   ctx.provide('sessionTitle' as string, { rename: () => {} })
   ctx.provide('sessionProjections' as string, { register: async () => ({}) })
   const workspaces: string[] = []
@@ -109,8 +118,9 @@ async function harness(config: {
     maxWorkersPerBot: config.maxWorkersPerBot ?? 2,
     maxHandoffDepth: config.maxHandoffDepth ?? 3,
     workerTimeoutMinutes: config.workerTimeoutMinutes ?? 30,
+    leadInstructions: BOT_LEAD_INSTRUCTIONS,
   })
-  return { ctx, followups, workers, workspaces, toolDefs, instructions }
+  return { ctx, followups, workers, workspaces, toolDefs, instructions, promptSections }
 }
 
 describe('bot records', () => {
@@ -536,6 +546,14 @@ describe('tickets', () => {
     )
     expect(result.stage).toBe('failed')
     expect(String(result.summary)).toContain('ENOENT')
+  })
+
+  it('registers a standing bot-first instruction for every Session', async () => {
+    const { promptSections } = await harness()
+    const section = promptSections.find(entry => entry.name === 'bot:lead')
+    expect(section?.text).toContain('bot_create')
+    expect(section?.text).toContain('bot_open_ticket')
+    expect(section?.text).toContain('durable bots')
   })
 
   it('records a stage timeline that the ticket tool returns', async () => {

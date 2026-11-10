@@ -69,6 +69,8 @@ export interface BotAttentionConfig {
   maxWorkersPerBot: number
   /** Deepest handoff chain a ticket may belong to. */
   maxHandoffDepth: number
+  /** Standing instruction that makes bot-first delegation the default. */
+  leadInstructions: string
   /** Minutes one worker may run before it is cancelled; 0 disables the budget. */
   workerTimeoutMinutes: number
 }
@@ -131,6 +133,15 @@ export function requireApproval(
 }
 
 /** Tools every bot worker keeps regardless of its allowlist. */
+/** Standing instruction that makes bot-first delegation the default in every Session. */
+export const BOT_LEAD_INSTRUCTIONS = [
+  'You lead this conversation, and this deployment runs durable bots.',
+  'For any request with more than a couple of steps or more than one concern, do not do all the work inline:',
+  'call bot_create once to bind this conversation as the bot\'s router, then bot_open_ticket for each unit of work with a self-contained instruction and acceptance criteria.',
+  'Workers run in isolated Sessions and report back; use bot_ticket to read a ticket\'s timeline, bot_remember to keep durable notes, and bot_handoff to split work across bots.',
+  'Answer simple one-file edits and single questions directly; never push or merge through a shell command.',
+].join(' ')
+
 export const BOT_PROTOCOL_TOOLS: readonly string[] = [
   'bot_handoff',
   'bot_remember',
@@ -230,6 +241,7 @@ export class BotRegistry extends Service {
     'sessionTitle',
     'sessionProjections',
     'workspaceRegistry',
+    'systemPrompt',
   ]
 
   /** Deployment attention policy. */
@@ -246,6 +258,8 @@ export class BotRegistry extends Service {
       .description('Worker Sessions one bot may run at once; extra tickets wait in queued.'),
     maxHandoffDepth: z.natural().max(10).default(3)
       .description('Deepest handoff chain a ticket may belong to.'),
+    leadInstructions: z.string().default(BOT_LEAD_INSTRUCTIONS)
+      .description('Standing instruction that makes bot-first delegation the default in every Session.'),
     workerTimeoutMinutes: z.natural().max(720).default(30)
       .description('Minutes a worker turn may run before it is cancelled; an answer restarts the clock, and 0 disables the budget.'),
   })
@@ -263,6 +277,7 @@ export class BotRegistry extends Service {
   private readonly maxWorkersPerBot: number
   private readonly maxHandoffDepth: number
   private readonly workerTimeoutMinutes: number
+  private readonly leadInstructions: string
   private readonly budgets = new Map<TicketId, ReturnType<typeof setTimeout>>()
   private reconciling = false
   private readonly pumping = new Set<BotId>()
@@ -278,6 +293,7 @@ export class BotRegistry extends Service {
     this.maxWorkersPerBot = config.maxWorkersPerBot ?? 2
     this.maxHandoffDepth = config.maxHandoffDepth ?? 3
     this.workerTimeoutMinutes = config.workerTimeoutMinutes ?? 30
+    this.leadInstructions = config.leadInstructions ?? BOT_LEAD_INSTRUCTIONS
   }
 
   /** Open the domain and register the model tools. */
@@ -303,6 +319,12 @@ export class BotRegistry extends Service {
       'bot.approvalGate',
     )
     this.ctx.effect(() => this.registerTools(), 'bot.tools')
+    this.ctx.effect(() => this.ctx.systemPrompt.section({
+      name: 'bot:lead',
+      order: this.ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_SUFFIX') + 1,
+      interpolate: false,
+      text: this.leadInstructions,
+    }), 'bot.lead')
     queueMicrotask(() => {
       void this.reconcile().catch((error: unknown) => {
         this.ctx.logger.warn(`bot: startup reconciliation failed: ${String(error)}`)
