@@ -33,8 +33,8 @@ export type BotStatus = 'active' | 'paused'
 
 /**
  * One durable bot. The record outlives every Session it starts: `routerSession`
- * names the conversation that owns it, and `workspace` is the directory its
- * workers run in.
+ * names the conversation that owns it, and `workspace` is the default
+ * directory its workers run in; a ticket may name its own.
  */
 export interface BotRecord {
   /** Stable identity, generated at create. */
@@ -194,6 +194,6 @@ export interface OpenTicketInput {
   readonly title: string
   /** The instruction the worker runs. */
   readonly instruction: string
-  /** Optional absolute working directory for this ticket's worker. */
+  /** Optional absolute working directory for this ticket's worker; omitted runs in the bot's workspace. */
   readonly workspace?: string
 }

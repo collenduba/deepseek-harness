@@ -736,7 +736,7 @@ Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/
     },
     "workspace": {
       "type": "string",
-      "description": "Optional absolute working directory for this ticket's worker."
+      "description": "Optional absolute working directory for this ticket's worker. Omit to run in the bot's workspace."
     }
   },
   "required": [

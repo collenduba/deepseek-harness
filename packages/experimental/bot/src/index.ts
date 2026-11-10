@@ -1022,7 +1022,7 @@ export class BotRegistry extends Service {
         parameters: {
           title: { type: 'string', required: true, description: 'Short title for the work, shown in the panel.' },
           instruction: { type: 'string', required: true, description: 'The complete instruction the worker executes, including every fact it needs.' },
-          workspace: { type: 'string', description: 'Optional absolute working directory for this ticket\'s worker.' },
+          workspace: { type: 'string', description: 'Optional absolute working directory for this ticket\'s worker. Omit to run in the bot\'s workspace.' },
         },
         output: {
           schema: {
@@ -1032,6 +1032,7 @@ export class BotRegistry extends Service {
               ticketId: { type: 'string', required: true },
               stage: { type: 'string', required: true },
               workerSession: { type: 'string' },
+              summary: { type: 'string', description: 'Failure reason when the stage is failed.' },
             },
           },
           render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
@@ -1048,6 +1049,7 @@ export class BotRegistry extends Service {
             ticketId: ticket.id,
             stage: ticket.stage,
             ...(ticket.workerSession === undefined ? {} : { workerSession: ticket.workerSession }),
+            ...(ticket.summary === undefined ? {} : { summary: ticket.summary }),
           }
         },
         presentCall: args => ({ card: 'generic', title: 'bot_open_ticket', rawInput: args }),

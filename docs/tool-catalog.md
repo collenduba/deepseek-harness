@@ -726,7 +726,7 @@ Give this conversation's bot one unit of work. A worker Session runs the instruc
     },
     "workspace": {
       "type": "string",
-      "description": "Optional absolute working directory for this ticket's worker."
+      "description": "Optional absolute working directory for this ticket's worker. Omit to run in the bot's workspace."
     }
   },
   "required": [

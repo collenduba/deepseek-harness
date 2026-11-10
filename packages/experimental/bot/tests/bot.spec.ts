@@ -33,6 +33,14 @@ async function harness(config: {
   const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain' as string, facility)
+  interface CapturedTool {
+    name: string
+    execute: (
+      args: { title: string; instruction: string; workspace?: string },
+      exec: { agent: { session: { id: SessionId } } },
+    ) => Promise<{ ticketId: string; stage: string; summary?: string }>
+  }
+  const toolDefs: CapturedTool[] = []
   const followups: string[] = []
   const pushNotice = (message: {
     content: { type: string; text: string }[]
@@ -41,7 +49,7 @@ async function harness(config: {
     if (message.source?.form !== 'notice') return
     followups.push(message.content[0]?.text ?? '')
   }
-  ctx.provide('tools' as string, { register: () => () => {} })
+  ctx.provide('tools' as string, { register: (definition: CapturedTool) => { toolDefs.push(definition); return () => {} } })
   interface FakeAgent {
     status: 'idle' | 'running'
     readonly session: { id: SessionId }
@@ -78,6 +86,7 @@ async function harness(config: {
   const workspaces: string[] = []
   ctx.provide('workspaceRegistry' as string, {
     create: async (path: string) => {
+      if (path.includes('missing')) throw new Error(`ENOENT: no such directory, '${path}'`)
       workspaces.push(path)
       return ({
         path,
@@ -97,7 +106,7 @@ async function harness(config: {
     maxHandoffDepth: config.maxHandoffDepth ?? 3,
     workerTimeoutMinutes: config.workerTimeoutMinutes ?? 30,
   })
-  return { ctx, followups, workers, workspaces }
+  return { ctx, followups, workers, workspaces, toolDefs }
 }
 
 describe('bot records', () => {
@@ -484,6 +493,19 @@ describe('tickets', () => {
     await expect(ctx.bots.openTicket({
       routerSession: ROUTER, title: 'Bad', instruction: 'Work.', workspace: 'relative/dir',
     })).rejects.toThrow(/must be absolute/)
+  })
+
+  it('reports why a caller-supplied workspace could not be used', async () => {
+    const { ctx, toolDefs } = await harness()
+    await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
+    const tool = toolDefs.find(definition => definition.name === 'bot_open_ticket')
+    expect(tool).toBeDefined()
+    const result = await tool!.execute(
+      { title: 'Missing', instruction: 'Work.', workspace: '/tmp/missing-dir' },
+      { agent: { session: { id: ROUTER } } },
+    )
+    expect(result.stage).toBe('failed')
+    expect(result.summary).toContain('ENOENT')
   })
 
   it('refuses to open a ticket when no bot is bound to the Session', async () => {
