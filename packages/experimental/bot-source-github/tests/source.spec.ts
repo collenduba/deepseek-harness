@@ -157,6 +157,7 @@ async function benchPullRequests(
   const prepared: string[] = []
   const removed: string[] = []
   const labels: { number: number; label: string }[] = []
+  const removedLabels: { number: number; label: string }[] = []
   const bot = {
     id: 'bot-1', name: 'reviewer', job: 'Review', workspace: '/tmp/w', routerSession: ROUTER,
     status: 'active', createdAt: '2026-11-09T00:00:00Z', updatedAt: '2026-11-09T00:00:00Z',
@@ -202,6 +203,10 @@ async function benchPullRequests(
       labels.push({ number: input.number, label: input.label })
       return Promise.resolve()
     },
+    removeLabel: (input: { number: number; label: string }) => {
+      removedLabels.push({ number: input.number, label: input.label })
+      return Promise.resolve()
+    },
     checksPass: () => Promise.resolve(options.checks ?? true),
     now: () => new Date('2026-11-09T01:00:00Z'),
   }
@@ -221,7 +226,7 @@ async function benchPullRequests(
     state,
   )
   return {
-    opened, tickets, prepared, removed, labels,
+    opened, tickets, prepared, removed, labels, removedLabels,
     candidates: [...state.candidates.entries()].map(([, candidate]) => candidate),
   }
 }
@@ -310,20 +315,23 @@ describe('github source loop', () => {
       { verdicts: { 'ticket-1': 'pass' }, stages: { 'ticket-1': 'ready' }, checks: true },
     )
     expect(pass.labels).toEqual([{ number: 3, label: 'merge-ready' }])
+    expect(pass.removedLabels).toEqual([{ number: 3, label: 'needs-work' }])
 
     const failing = await benchPullRequests(
       [[], [pullRequest(3, 'sha-c')], []],
       { verdicts: { 'ticket-1': 'pass' }, stages: { 'ticket-1': 'ready' }, checks: false },
     )
     expect(failing.labels).toEqual([])
+    expect(failing.removedLabels).toEqual([{ number: 3, label: 'merge-ready' }])
   })
 
   it('labels a failed review even before checks finish', async () => {
-    const { labels } = await benchPullRequests(
+    const { labels, removedLabels } = await benchPullRequests(
       [[], [pullRequest(4, 'sha-d')], []],
       { verdicts: { 'ticket-1': 'fail' }, stages: { 'ticket-1': 'ready' } },
     )
     expect(labels).toEqual([{ number: 4, label: 'needs-work' }])
+    expect(removedLabels).toEqual([{ number: 4, label: 'merge-ready' }])
   })
 
   it('keeps reviewing other revisions when one worktree cannot be prepared', async () => {

@@ -320,9 +320,14 @@ export async function removeReviewWorktree(
 }
 
 /** Whether every reported check on a pull request passed. */
-export function rollupPasses(rollup: readonly { readonly conclusion?: string | null; readonly status?: string | null }[]): boolean {
+export function rollupPasses(rollup: readonly {
+  readonly conclusion?: string | null
+  readonly status?: string | null
+  readonly state?: string | null
+}[]): boolean {
   return rollup.length > 0 && rollup.every(check =>
-    check.conclusion === 'SUCCESS' || check.conclusion === 'NEUTRAL' || check.conclusion === 'SKIPPED')
+    check.conclusion === 'SUCCESS' || check.conclusion === 'NEUTRAL' || check.conclusion === 'SKIPPED'
+    || (check.conclusion === undefined && check.state === 'SUCCESS'))
 }
 
 /**
@@ -351,6 +356,36 @@ export async function labelPullRequest(
   })
   if (result.timedOut) throw new Error(`gh pr edit timed out after ${options.timeoutMs}ms`)
   if (result.exitCode !== 0) throw new Error(`gh pr edit failed: ${result.stderr}`)
+}
+
+/**
+ * Remove one label from a pull request; a missing label is not an error.
+ * @param options - repository and executable.
+ * @param number - pull request number.
+ * @param label - label to remove.
+ * @param signal - poll cancellation.
+ */
+export async function removeLabel(
+  options: PollOptions,
+  number: number,
+  label: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const result = await execa(options.ghCommand, [
+    'pr', 'edit', String(number), '--repo', options.repository, '--remove-label', label,
+  ], {
+    env: { ...scrubbedParentEnv(), ...GH_ENV },
+    extendEnv: false,
+    stdin: 'ignore',
+    reject: false,
+    timeout: options.timeoutMs,
+    cancelSignal: signal,
+    maxBuffer: 8 * 1024 * 1024,
+  })
+  if (result.timedOut) throw new Error(`gh pr edit timed out after ${options.timeoutMs}ms`)
+  if (result.exitCode !== 0 && !String(result.stderr).includes('not found')) {
+    throw new Error(`gh pr edit failed: ${result.stderr}`)
+  }
 }
 
 /**

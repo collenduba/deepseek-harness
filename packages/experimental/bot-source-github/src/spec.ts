@@ -34,7 +34,7 @@ export const candidateSchema = z.object({
   headSha: z.string().min(1).optional(),
   worktree: z.string().min(1).optional(),
   cleanedAt: z.string().min(1).optional(),
-  gate: z.enum(['ready', 'needs-work']).optional(),
+  gate: z.enum(['ready', 'needs-work', 'pending']).optional(),
   ticketId: z.string().min(1).optional(),
   createdAt: z.string().min(1),
   commentedAt: z.string().min(1).optional(),

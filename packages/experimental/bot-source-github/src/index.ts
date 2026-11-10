@@ -15,7 +15,7 @@ import z from '@deepseek-ai/schemastery'
 import {
   admitted, candidateOf, commentIssue, freshIssues, freshPullRequests, listIssues, listPullRequests,
   labelPullRequest, prepareReviewWorktree, pullRequestCandidateOf, pullRequestInstruction,
-  pullRequestChecksPass, removeReviewWorktree, reportComment, ticketInstruction,
+  pullRequestChecksPass, removeLabel, removeReviewWorktree, reportComment, ticketInstruction,
 } from './github.ts'
 import type { GithubIssue, GithubPullRequest } from './github.ts'
 import type { PollOptions } from './github.ts'
@@ -256,6 +256,8 @@ export interface SourceDeps {
   addLabel?(input: { readonly number: number; readonly label: string; readonly signal: AbortSignal }): Promise<void>
   /** Whether every reported check on a pull request passed. */
   checksPass?(input: { readonly number: number; readonly signal: AbortSignal }): Promise<boolean>
+  /** Remove one label from a pull request; a missing label is not an error. */
+  removeLabel?(input: { readonly number: number; readonly label: string; readonly signal: AbortSignal }): Promise<void>
   /** Remove one review worktree. */
   removeWorktree?(input: {
     readonly repository: string
@@ -279,6 +281,7 @@ function realDeps(config: Config): SourceDeps {
     prepareWorktree: input => prepareReviewWorktree(options, input),
     addLabel: input => labelPullRequest(options, input.number, input.label, input.signal),
     checksPass: input => pullRequestChecksPass(options, input.number, input.signal),
+    removeLabel: input => removeLabel(options, input.number, input.label, input.signal),
     removeWorktree: input => removeReviewWorktree(options, input),
     comment: (issueNumber, body, signal) => commentIssue(options, issueNumber, body, signal),
     now: () => new Date(),
@@ -468,7 +471,7 @@ async function cleanWorktrees(
   }
 }
 
-/** Label reviewed pull requests from their ticket verdict and checks. */
+/** Reconcile one pull request's gate labels with its verdict and checks. */
 async function applyGate(
   ctx: Context,
   config: Config,
@@ -478,16 +481,20 @@ async function applyGate(
   signal: AbortSignal,
 ): Promise<void> {
   const label = deps.addLabel?.bind(deps)
+  const unlabel = deps.removeLabel?.bind(deps)
   const checks = deps.checksPass?.bind(deps)
-  if (label === undefined || checks === undefined) return
+  if (label === undefined || unlabel === undefined || checks === undefined) return
   const tickets = new Map(ctx.bots.ticketsOf(bot.id).map(ticket => [String(ticket.id), ticket]))
   const checked = new Map<number, boolean>()
   for (const [, candidate] of [...candidates.entries()]) {
     if (candidate.state !== 'opened' || candidate.ticketId === undefined) continue
     const verdict = tickets.get(candidate.ticketId)?.verdict
-    if (verdict === undefined || candidate.gate === (verdict === 'pass' ? 'ready' : 'needs-work')) continue
+    if (verdict === undefined) continue
+    if (candidate.gate === (verdict === 'pass' ? 'ready' : 'needs-work')) continue
     try {
       if (verdict === 'fail') {
+        if (candidate.gate === 'needs-work') continue
+        await unlabel({ number: candidate.number, label: config.gateLabel, signal })
         await label({ number: candidate.number, label: config.gateFailLabel, signal })
         await candidates.put(candidate.id, { ...candidate, gate: 'needs-work' })
         continue
@@ -497,7 +504,13 @@ async function applyGate(
         passed = await checks({ number: candidate.number, signal })
         checked.set(candidate.number, passed)
       }
-      if (!passed) continue
+      if (!passed) {
+        if (candidate.gate === 'pending') continue
+        await unlabel({ number: candidate.number, label: config.gateLabel, signal })
+        await candidates.put(candidate.id, { ...candidate, gate: 'pending' })
+        continue
+      }
+      await unlabel({ number: candidate.number, label: config.gateFailLabel, signal })
       await label({ number: candidate.number, label: config.gateLabel, signal })
       await candidates.put(candidate.id, { ...candidate, gate: 'ready' })
     } catch (error: unknown) {
