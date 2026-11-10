@@ -147,6 +147,22 @@ describe('bot records', () => {
     expect(ctx.bots.list()[0]?.tools).toEqual(['read', 'grep', 'bash'])
   })
 
+  it('stores a review verdict and rejects an unknown one', async () => {
+    const { ctx } = await harness()
+    const bot = await ctx.bots.create({
+      name: 'reviewer', job: 'Review pull requests', workspace: '/tmp/work', routerSession: ROUTER,
+    })
+    const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+    const reported = await ctx.bots.report(ticket.workerSession!, ticket.id, {
+      stage: 'ready', summary: 'No blockers.', verdict: 'pass',
+    })
+    expect(reported.verdict).toBe('pass')
+    expect(ctx.bots.ticketsOf(bot.id)[0]?.verdict).toBe('pass')
+    await expect(ctx.bots.report(ticket.workerSession!, ticket.id, {
+      stage: 'ready', summary: 'Bad.', verdict: 'maybe' as never,
+    })).rejects.toThrow(/verdict must be/)
+  })
+
   it('rejects a duplicate name in the same Session and a relative workspace', async () => {
     const { ctx } = await harness()
     const input = {

@@ -513,10 +513,15 @@ export class BotRegistry extends Service {
       throw new Error(`only the worker Session of ticket '${ticketId}' can report on it`)
     }
     const summary = requireText(report.summary, 'summary')
+    const verdict = report.verdict
+    if (verdict !== undefined && verdict !== 'pass' && verdict !== 'fail') {
+      throw new Error(`verdict must be 'pass' or 'fail', got '${String(verdict)}'`)
+    }
     const updated = await this.ticketsTable.update(ticketId, current => ({
       ...current,
       stage: report.stage,
       summary,
+      ...(verdict === undefined ? {} : { verdict }),
       updatedAt: now(),
     }))
     if (report.stage === 'ready' || report.stage === 'failed' || report.stage === 'blocked') {
