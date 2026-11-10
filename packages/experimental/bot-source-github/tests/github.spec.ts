@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  admitted, candidateOf, freshIssues, freshPullRequests, parseIssues, parsePullRequests,
+  admitted, candidateOf, rollupPasses, freshIssues, freshPullRequests, parseIssues, parsePullRequests,
   prepareReviewWorktree, pullRequestCandidateOf, pullRequestInstruction, removeReviewWorktree, reportComment,
   searchArgs, ticketInstruction,
 } from '../src/github.ts'
@@ -89,6 +89,15 @@ describe('review worktrees', () => {
     } finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('rollupPasses', () => {
+  it('requires every reported check to succeed', () => {
+    expect(rollupPasses([])).toBe(false)
+    expect(rollupPasses([{ conclusion: 'SUCCESS' }, { conclusion: 'SKIPPED' }])).toBe(true)
+    expect(rollupPasses([{ conclusion: 'SUCCESS' }, { conclusion: 'FAILURE' }])).toBe(false)
+    expect(rollupPasses([{ status: 'IN_PROGRESS' }])).toBe(false)
   })
 })
 

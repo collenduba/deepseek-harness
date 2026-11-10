@@ -14,8 +14,8 @@ import type { BotId, TicketStage } from '@deepseek-ai/dsh-bot'
 import z from '@deepseek-ai/schemastery'
 import {
   admitted, candidateOf, commentIssue, freshIssues, freshPullRequests, listIssues, listPullRequests,
-  prepareReviewWorktree, pullRequestCandidateOf, pullRequestInstruction, removeReviewWorktree, reportComment,
-  ticketInstruction,
+  labelPullRequest, prepareReviewWorktree, pullRequestCandidateOf, pullRequestInstruction,
+  pullRequestChecksPass, removeReviewWorktree, reportComment, ticketInstruction,
 } from './github.ts'
 import type { GithubIssue, GithubPullRequest } from './github.ts'
 import type { PollOptions } from './github.ts'
@@ -52,6 +52,12 @@ export interface Config {
   worktrees: boolean
   /** Parent directory for review worktrees; empty uses a sibling `.dsh-worktrees` of the bot workspace. */
   worktreeRoot: string
+  /** Merge-gate action: off, or label the pull request. */
+  gate: 'off' | 'label'
+  /** Label added when the review passed and checks are green. */
+  gateLabel: string
+  /** Label added when the review found a blocker. */
+  gateFailLabel: string
   /** What to watch: open issues, or open pull-request revisions. */
   target: 'issues' | 'pull-requests'
   /** Review draft pull requests too. */
@@ -83,6 +89,12 @@ export const Config: z<Config> = z.object({
     .description('Parent directory for review worktrees; empty uses a sibling .dsh-worktrees of the bot workspace.'),
   target: z.union([z.const('issues'), z.const('pull-requests')]).default('issues')
     .description('Watch open issues or open pull-request revisions.'),
+  gate: z.union([z.const('off'), z.const('label')]).default('off')
+    .description('Label a reviewed pull request with gateLabel when its verdict passed and checks are green, or gateFailLabel when it failed.'),
+  gateLabel: z.string().default('merge-ready')
+    .description('Label added when the review passed and checks are green.'),
+  gateFailLabel: z.string().default('needs-work')
+    .description('Label added when the review found a blocker.'),
   includeDrafts: z.boolean().default(false)
     .description('Review draft pull requests too.'),
   maxSeen: z.natural().min(1).max(2_000).default(200).description('How many handled issue numbers one repository remembers.'),
@@ -240,6 +252,10 @@ export interface SourceDeps {
     readonly pullRequest: GithubPullRequest
     readonly signal: AbortSignal
   }): Promise<string>
+  /** Add one label to a pull request. */
+  addLabel?(input: { readonly number: number; readonly label: string; readonly signal: AbortSignal }): Promise<void>
+  /** Whether every reported check on a pull request passed. */
+  checksPass?(input: { readonly number: number; readonly signal: AbortSignal }): Promise<boolean>
   /** Remove one review worktree. */
   removeWorktree?(input: {
     readonly repository: string
@@ -261,6 +277,8 @@ function realDeps(config: Config): SourceDeps {
     list: signal => listIssues(options, signal),
     listPullRequests: signal => listPullRequests(options, config.includeDrafts, signal),
     prepareWorktree: input => prepareReviewWorktree(options, input),
+    addLabel: input => labelPullRequest(options, input.number, input.label, input.signal),
+    checksPass: input => pullRequestChecksPass(options, input.number, input.signal),
     removeWorktree: input => removeReviewWorktree(options, input),
     comment: (issueNumber, body, signal) => commentIssue(options, issueNumber, body, signal),
     now: () => new Date(),
@@ -375,6 +393,9 @@ export async function runSource(
         if (bot !== undefined && remove !== undefined) {
           await cleanWorktrees(ctx, config, deps, candidates, bot, remove, signal)
         }
+        if (config.gate === 'label' && bot !== undefined) {
+          await applyGate(ctx, config, deps, candidates, bot, signal)
+        }
       }
       if (pullLister === undefined) {
         const issues = await deps.list(signal)
@@ -443,6 +464,44 @@ async function cleanWorktrees(
       await candidates.put(candidate.id, { ...candidate, cleanedAt: deps.now().toISOString() })
     } catch (error: unknown) {
       ctx.logger.warn(`bot-source-github: worktree cleanup for PR #${candidate.number} failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+}
+
+/** Label reviewed pull requests from their ticket verdict and checks. */
+async function applyGate(
+  ctx: Context,
+  config: Config,
+  deps: SourceDeps,
+  candidates: SourceState['candidates'],
+  bot: { readonly id: BotId },
+  signal: AbortSignal,
+): Promise<void> {
+  const label = deps.addLabel?.bind(deps)
+  const checks = deps.checksPass?.bind(deps)
+  if (label === undefined || checks === undefined) return
+  const tickets = new Map(ctx.bots.ticketsOf(bot.id).map(ticket => [String(ticket.id), ticket]))
+  const checked = new Map<number, boolean>()
+  for (const [, candidate] of [...candidates.entries()]) {
+    if (candidate.state !== 'opened' || candidate.ticketId === undefined) continue
+    const verdict = tickets.get(candidate.ticketId)?.verdict
+    if (verdict === undefined || candidate.gate === (verdict === 'pass' ? 'ready' : 'needs-work')) continue
+    try {
+      if (verdict === 'fail') {
+        await label({ number: candidate.number, label: config.gateFailLabel, signal })
+        await candidates.put(candidate.id, { ...candidate, gate: 'needs-work' })
+        continue
+      }
+      let passed = checked.get(candidate.number)
+      if (passed === undefined) {
+        passed = await checks({ number: candidate.number, signal })
+        checked.set(candidate.number, passed)
+      }
+      if (!passed) continue
+      await label({ number: candidate.number, label: config.gateLabel, signal })
+      await candidates.put(candidate.id, { ...candidate, gate: 'ready' })
+    } catch (error: unknown) {
+      ctx.logger.warn(`bot-source-github: gate for PR #${candidate.number} failed: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 }

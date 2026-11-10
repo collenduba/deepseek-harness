@@ -54,7 +54,7 @@ Bot 是持久记录，不是会话。一个 `bot` 存储域持有五张表：
 
 ### 来源
 
-`@deepseek-ai/dsh-bot-source-github` 通过 `gh` 轮询一个仓库。`target: pull-requests` 时改为观察每个拉取请求的 head 修订：每个 `number@head` 一条候选，跳过草稿，每个修订一条审阅工单。开启 `worktrees` 后，它把修订抓到独立 worktree、作为工单工作区传入，并在审阅工单结束后移除。每个新 issue 记录一条候选；`observe` 只记录日志，`auto` 开工单。作者名单会过滤候选，写回在每个结果完成时评论一次，`bot_candidates` / `bot_accept_candidate` 负责审阅与提升。轮询循环的列表与评论效果以参数传入，测试因此能在没有 `gh` 进程的情况下用真实存储覆盖观察、自动、准入与写回；`autostart: false` 只挂载工具而不轮询。
+`@deepseek-ai/dsh-bot-source-github` 通过 `gh` 轮询一个仓库。`target: pull-requests` 时改为观察每个拉取请求的 head 修订：每个 `number@head` 一条候选，跳过草稿，每个修订一条审阅工单。开启 `worktrees` 后，它把修订抓到独立 worktree、作为工单工作区传入，并在审阅工单结束后移除。开启 `gate: label` 后，它根据审阅工单的结论与已报告的检查为拉取请求打标签（`merge-ready` 或 `needs-work`），从不执行合并。每个新 issue 记录一条候选；`observe` 只记录日志，`auto` 开工单。作者名单会过滤候选，写回在每个结果完成时评论一次，`bot_candidates` / `bot_accept_candidate` 负责审阅与提升。轮询循环的列表与评论效果以参数传入，测试因此能在没有 `gh` 进程的情况下用真实存储覆盖观察、自动、准入与写回；`autostart: false` 只挂载工具而不轮询。
 
 ### 面板
 

@@ -34,6 +34,7 @@ export const candidateSchema = z.object({
   headSha: z.string().min(1).optional(),
   worktree: z.string().min(1).optional(),
   cleanedAt: z.string().min(1).optional(),
+  gate: z.enum(['ready', 'needs-work']).optional(),
   ticketId: z.string().min(1).optional(),
   createdAt: z.string().min(1),
   commentedAt: z.string().min(1).optional(),
@@ -42,11 +43,11 @@ export const candidateSchema = z.object({
 /** Stored candidate. */
 export type SourceCandidate = z.infer<typeof candidateSchema>
 
-/** The source's own domain, version 7: candidates can own an isolated review worktree. */
+/** The source's own domain, version 8: candidates record a merge-gate outcome. */
 export const sourceDomainSpec = defineDomain({
   name: 'bot_source_github',
-  version: 7,
-  compatibleVersions: [1, 2, 3, 4, 5, 6],
+  version: 8,
+  compatibleVersions: [1, 2, 3, 4, 5, 6, 7],
   tables: {
     cursors: domainTable<SourceKey, SourceCursor>(cursorSchema),
     candidates: domainTable<CandidateId, SourceCandidate>(candidateSchema),

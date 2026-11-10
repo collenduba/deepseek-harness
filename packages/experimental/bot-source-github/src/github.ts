@@ -215,7 +215,7 @@ export function pullRequestInstruction(
     'Post exactly one summary comment on the pull request:',
     `  gh pr comment ${pullRequest.number} --repo ${repository} --body-file <your review file>`,
     'List findings as `path:line — severity — problem — suggested fix`. If nothing is wrong, say so and list what you checked.',
-    'Then call bot_report with the ticket id from your instructions, stage ready, and a one-line summary.',
+    'Then call bot_report with the ticket id from your instructions, stage ready, a one-line summary, and verdict "pass" when no blocker remains or "fail" otherwise.',
     'Never push, merge, force-push, or change the pull request.',
   ].join('\n')
 }
@@ -317,6 +317,70 @@ export async function removeReviewWorktree(
   if (existsSync(input.path)) throw new Error(`worktree '${input.path}' still exists after removal`)
   await git(options, input.repoPath, ['worktree', 'prune'], input.signal).catch(() => {})
   await git(options, input.repoPath, ['update-ref', '-d', input.ref], input.signal).catch(() => {})
+}
+
+/** Whether every reported check on a pull request passed. */
+export function rollupPasses(rollup: readonly { readonly conclusion?: string | null; readonly status?: string | null }[]): boolean {
+  return rollup.length > 0 && rollup.every(check =>
+    check.conclusion === 'SUCCESS' || check.conclusion === 'NEUTRAL' || check.conclusion === 'SKIPPED')
+}
+
+/**
+ * Add one label to a pull request.
+ * @param options - repository and executable.
+ * @param number - pull request number.
+ * @param label - label to add.
+ * @param signal - poll cancellation.
+ */
+export async function labelPullRequest(
+  options: PollOptions,
+  number: number,
+  label: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const result = await execa(options.ghCommand, [
+    'pr', 'edit', String(number), '--repo', options.repository, '--add-label', label,
+  ], {
+    env: { ...scrubbedParentEnv(), ...GH_ENV },
+    extendEnv: false,
+    stdin: 'ignore',
+    reject: false,
+    timeout: options.timeoutMs,
+    cancelSignal: signal,
+    maxBuffer: 8 * 1024 * 1024,
+  })
+  if (result.timedOut) throw new Error(`gh pr edit timed out after ${options.timeoutMs}ms`)
+  if (result.exitCode !== 0) throw new Error(`gh pr edit failed: ${result.stderr}`)
+}
+
+/**
+ * Read a pull request's status checks and say whether all passed.
+ * @param options - repository and executable.
+ * @param number - pull request number.
+ * @param signal - poll cancellation.
+ * @returns true when every reported check succeeded.
+ */
+export async function pullRequestChecksPass(
+  options: PollOptions,
+  number: number,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const result = await execa(options.ghCommand, [
+    'pr', 'view', String(number), '--repo', options.repository, '--json', 'statusCheckRollup',
+  ], {
+    env: { ...scrubbedParentEnv(), ...GH_ENV },
+    extendEnv: false,
+    stdin: 'ignore',
+    reject: false,
+    timeout: options.timeoutMs,
+    cancelSignal: signal,
+    maxBuffer: 8 * 1024 * 1024,
+  })
+  if (result.timedOut) throw new Error(`gh pr view timed out after ${options.timeoutMs}ms`)
+  if (result.exitCode !== 0) throw new Error(`gh pr view failed: ${result.stderr}`)
+  const parsed: unknown = JSON.parse(result.stdout)
+  const rollup = (parsed as { statusCheckRollup?: readonly { conclusion?: string | null }[] }).statusCheckRollup ?? []
+  return rollupPasses(rollup)
 }
 
 /**
