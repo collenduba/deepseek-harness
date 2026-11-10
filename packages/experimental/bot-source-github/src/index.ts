@@ -490,20 +490,19 @@ async function applyGate(
   const checked = new Map<number, boolean>()
   for (const [, candidate] of [...candidates.entries()]) {
     if (candidate.state !== 'opened' || candidate.ticketId === undefined) continue
-    const head = heads.get(candidate.number)
-    if (head === undefined || (candidate.headSha !== undefined && candidate.headSha !== head)) {
-      if (candidate.gate !== undefined && candidate.gate !== 'pending') {
-        await unlabel({ number: candidate.number, label: config.gateLabel, signal })
-        await unlabel({ number: candidate.number, label: config.gateFailLabel, signal })
-        await candidates.put(candidate.id, { ...candidate, gate: 'pending' })
-      }
-      continue
-    }
-    const ticket = tickets.get(candidate.ticketId)
-    const verdict = ticket?.verdict
-    if (verdict === undefined || ticket?.stage !== 'ready') continue
-    if (candidate.gate === (verdict === 'pass' ? 'ready' : 'needs-work')) continue
     try {
+      const head = heads.get(candidate.number)
+      if (head === undefined || (candidate.headSha !== undefined && candidate.headSha !== head)) {
+        if (candidate.gate !== undefined && candidate.gate !== 'pending') {
+          await unlabel({ number: candidate.number, label: config.gateLabel, signal })
+          await unlabel({ number: candidate.number, label: config.gateFailLabel, signal })
+          await candidates.put(candidate.id, { ...candidate, gate: 'pending' })
+        }
+        continue
+      }
+      const ticket = tickets.get(candidate.ticketId)
+      const verdict = ticket?.verdict
+      if (verdict === undefined || ticket?.stage !== 'ready') continue
       if (verdict === 'fail') {
         if (candidate.gate === 'needs-work') continue
         await unlabel({ number: candidate.number, label: config.gateLabel, signal })
@@ -522,6 +521,7 @@ async function applyGate(
         await candidates.put(candidate.id, { ...candidate, gate: 'pending' })
         continue
       }
+      if (candidate.gate === 'ready') continue
       await unlabel({ number: candidate.number, label: config.gateFailLabel, signal })
       await label({ number: candidate.number, label: config.gateLabel, signal })
       await candidates.put(candidate.id, { ...candidate, gate: 'ready' })
