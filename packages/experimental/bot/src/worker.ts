@@ -52,6 +52,7 @@ export function workerInstruction(
     ...origin === undefined ? [] : ['', `This ticket was handed off from ticket ${origin.ticketId} of bot "${origin.botName}".`],
     ...bot.tools === undefined ? [] : ['', `You may call only these tools: ${bot.tools.join(', ')}, plus the bot reporting tools.`],
     ...bot.hardFloor === undefined ? [] : ['', `A person must perform these actions; do not request approval for them: ${bot.hardFloor.join(', ')}.`],
+    ...ticket.acceptance === undefined ? [] : ['', 'Acceptance criteria:', ...ticket.acceptance.map(criterion => `- ${criterion}`)],
     ...memories.length === 0 ? [] : ['', 'Known context for this bot, from earlier tickets:', ...memories.map(memory => `- ${memory.text}`)],
     '',
     'Work only on this instruction:',

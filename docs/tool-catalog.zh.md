@@ -737,6 +737,20 @@ Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/
     "workspace": {
       "type": "string",
       "description": "Optional absolute working directory for this ticket's worker. Omit to run in the bot's workspace."
+    },
+    "blocked_by": {
+      "type": "array",
+      "description": "Ticket ids that must reach ready before this ticket starts.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "acceptance": {
+      "type": "array",
+      "description": "Acceptance criteria the worker must satisfy.",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "required": [

@@ -59,6 +59,8 @@ export const ticketRecordSchema = z.object({
   parentBotName: z.string().min(1).optional(),
   handoffDepth: z.number().int().nonnegative().optional(),
   verdict: z.enum(['pass', 'fail']).optional(),
+  blockedBy: z.array(ticketId).optional(),
+  acceptance: z.array(z.string().min(1)).optional(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
 })
@@ -101,13 +103,13 @@ export const noticeRecordSchema = z.object({
 
 /**
  * The `bot` domain: bots, tickets, remembered notes, approval requests, and
- * notices, with no global state. Version 12 adds an optional review verdict on
- * a ticket; versions 1 through 11 load unchanged.
+ * notices, with no global state. Version 13 adds ticket dependencies and
+ * acceptance criteria; versions 1 through 12 load unchanged.
  */
 export const botDomainSpec = defineDomain({
   name: 'bot',
-  version: 12,
-  compatibleVersions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  version: 13,
+  compatibleVersions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
   tables: {
     bots: domainTable<BotId, BotRecord>(botRecordSchema),
     tickets: domainTable<TicketId, TicketRecord>(ticketRecordSchema),
