@@ -140,12 +140,11 @@ Each ticket starts a new Session, so the instruction establishes that Session's 
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- Polling only: no webhooks, no comments, no pull requests, and no reactions.
-- No write-back to GitHub — the worker reports in the bot's conversation, and nobody comments on the issue unless a later Source adds it.
-- Issue edits do not re-open a ticket; only unseen numbers do.
+- Polling only: there are no webhooks and no reactions; `target` selects open issues or pull-request revisions.
+- Write-back covers issues: with `writeBack` on the source posts one comment per finished result. A pull-request review posts its own comment from the worker.
+- Issue edits do not re-open a ticket; for pull requests, every new head is a new revision.
 - The cursor is per repository, so running two configs for one repository shares state only if they use the same bot and query.
-- `observe` advances the cursor and keeps candidates only in the source's storage: there is no review tool or panel yet, and switching to `auto` later does not reopen issues observed earlier.
-- Write-back comments once and does not close the issue or reply to review threads; it also needs `gh` write permission on the repository.
+- `observe` advances the cursor and keeps candidates only in the source's storage; `bot_candidates` lists them, but there is no candidate panel, and switching to `auto` later does not reopen revisions observed earlier.
 - Admission matches author logins only: organization membership, teams, and bot authors need to be listed explicitly.
 - With `autostart: false` nothing polls until an embedder calls `runSource`; the tools still register and read the same storage.
 - The bot must already exist when a poll finds work; a missing bot is logged and retried.
