@@ -41,6 +41,7 @@ async function harness(config: {
     ) => Promise<Record<string, unknown>>
   }
   const toolDefs: CapturedTool[] = []
+  const instructions: string[] = []
   const followups: string[] = []
   const pushNotice = (message: {
     content: { type: string; text: string }[]
@@ -64,7 +65,10 @@ async function harness(config: {
         status: 'running',
         session: { id },
         cancel: vi.fn(() => { agent.status = 'idle' }),
-        followup: pushNotice,
+        followup: (message: { content: { type: string; text: string }[]; source?: { form?: string } }) => {
+          instructions.push(message.content[0]?.text ?? '')
+          pushNotice(message)
+        },
       }
       workers.set(id, agent)
       return { agent, dispose: async () => {} }
@@ -106,7 +110,7 @@ async function harness(config: {
     maxHandoffDepth: config.maxHandoffDepth ?? 3,
     workerTimeoutMinutes: config.workerTimeoutMinutes ?? 30,
   })
-  return { ctx, followups, workers, workspaces, toolDefs }
+  return { ctx, followups, workers, workspaces, toolDefs, instructions }
 }
 
 describe('bot records', () => {
@@ -532,6 +536,55 @@ describe('tickets', () => {
     )
     expect(result.stage).toBe('failed')
     expect(String(result.summary)).toContain('ENOENT')
+  })
+
+  it('waits for blocking tickets and starts when they reach ready', async () => {
+    const { ctx, instructions } = await harness()
+    const bot = await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
+    const first = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'First', instruction: 'One.' })
+    const second = await ctx.bots.openTicket({
+      routerSession: ROUTER, title: 'Second', instruction: 'Two.', blockedBy: [first.id], acceptance: ['Tests pass'],
+    })
+    expect(second.stage).toBe('queued')
+    expect(second.workerSession).toBeUndefined()
+    expect(instructions.some(text => text.includes('Acceptance criteria:') && text.includes('Tests pass'))).toBe(false)
+    await ctx.bots.report(first.workerSession!, first.id, { stage: 'ready', summary: 'Done.' })
+    const started = ctx.bots.ticketsOf(bot.id).find(ticket => ticket.id === second.id)
+    expect(started?.stage).toBe('working')
+    expect(instructions.some(text => text.includes('Acceptance criteria:') && text.includes('Tests pass'))).toBe(true)
+  })
+
+  it('blocks dependents when a blocker fails', async () => {
+    const { ctx } = await harness()
+    const bot = await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
+    const first = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'First', instruction: 'One.' })
+    const second = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Second', instruction: 'Two.', blockedBy: [first.id] })
+    await ctx.bots.report(first.workerSession!, first.id, { stage: 'failed', summary: 'Broke.' })
+    const dependent = ctx.bots.ticketsOf(bot.id).find(ticket => ticket.id === second.id)
+    expect(dependent?.stage).toBe('blocked')
+    expect(dependent?.summary).toContain('which failed')
+  })
+
+  it('keeps dependents waiting while a blocker waits for a person', async () => {
+    const { ctx } = await harness()
+    const bot = await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
+    const first = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'First', instruction: 'One.' })
+    const second = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Second', instruction: 'Two.', blockedBy: [first.id] })
+    await ctx.bots.report(first.workerSession!, first.id, { stage: 'waiting', summary: 'Need input.' })
+    expect(ctx.bots.ticketsOf(bot.id).find(ticket => ticket.id === second.id)?.stage).toBe('queued')
+    await ctx.bots.report(first.workerSession!, first.id, { stage: 'ready', summary: 'Done.' })
+    expect(ctx.bots.ticketsOf(bot.id).find(ticket => ticket.id === second.id)?.stage).toBe('working')
+  })
+
+  it('refuses a blocking ticket from another bot and unknown tickets', async () => {
+    const { ctx } = await harness()
+    await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
+    const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'First', instruction: 'One.' })
+    await expect(ctx.bots.openTicket({
+      routerSession: ROUTER, title: 'Second', instruction: 'Two.',
+      blockedBy: [brandString<TicketId>('ticket-missing')],
+    })).rejects.toThrow(/unknown blocking ticket/)
+    expect(ticket.stage).toBe('working')
   })
 
   it('refuses to open a ticket when no bot is bound to the Session', async () => {

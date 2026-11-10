@@ -94,6 +94,10 @@ export interface TicketRecord {
   readonly handoffDepth?: number | undefined
   /** Review outcome recorded by the worker; absent until it reports one. */
   readonly verdict?: TicketVerdict | undefined
+  /** Tickets that must reach `ready` before this one starts. */
+  readonly blockedBy?: readonly TicketId[] | undefined
+  /** Acceptance criteria the worker must satisfy. */
+  readonly acceptance?: readonly string[] | undefined
   /** ISO-8601 creation time. */
   readonly createdAt: string
   /** ISO-8601 time of the latest write. */
@@ -203,4 +207,8 @@ export interface OpenTicketInput {
   readonly instruction: string
   /** Optional absolute working directory for this ticket's worker; omitted runs in the bot's workspace. */
   readonly workspace?: string
+  /** Ticket ids that must reach `ready` before this ticket starts. */
+  readonly blockedBy?: readonly TicketId[]
+  /** Acceptance criteria to include in the worker instruction. */
+  readonly acceptance?: readonly string[]
 }

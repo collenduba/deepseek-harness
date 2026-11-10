@@ -378,7 +378,10 @@ export class BotRegistry extends Service {
     const bot = this.findByRouter(input.routerSession)
     if (bot === undefined) throw new Error('no bot is bound to this Session; call bot_create first')
     if (bot.status !== 'active') throw new Error(`bot '${bot.name}' is paused`)
-    return await this.createTicket(bot, input.title, input.instruction, undefined, input.workspace)
+    return await this.createTicket(bot, input.title, input.instruction, undefined, input.workspace, {
+      ...(input.blockedBy === undefined ? {} : { blockedBy: input.blockedBy }),
+      ...(input.acceptance === undefined ? {} : { acceptance: input.acceptance }),
+    })
   }
 
   /**
@@ -413,10 +416,22 @@ export class BotRegistry extends Service {
     instructionInput: string,
     parent?: { readonly ticket: TicketRecord; readonly bot: BotRecord; readonly depth: number },
     workspaceInput?: string,
+    extras?: { readonly blockedBy?: readonly TicketId[]; readonly acceptance?: readonly string[] },
   ): Promise<TicketRecord> {
     const title = requireText(titleInput, 'title')
     const instruction = requireText(instructionInput, 'instruction')
     const workspace = workspaceInput === undefined ? undefined : requireAbsolute(workspaceInput, 'workspace')
+    const blockedBy = extras?.blockedBy
+    const acceptance = extras?.acceptance?.map(entry => requireText(entry, 'acceptance'))
+    if (blockedBy !== undefined) {
+      const unique = new Set(blockedBy.map(String))
+      if (unique.size !== blockedBy.length) throw new Error('blockedBy contains a duplicate ticket')
+      for (const blockerId of blockedBy) {
+        const blocker = this.ticketsTable.get(blockerId)
+        if (blocker === undefined) throw new Error(`unknown blocking ticket '${blockerId}'`)
+        if (String(blocker.botId) !== String(bot.id)) throw new Error(`blocking ticket '${blockerId}' belongs to another bot`)
+      }
+    }
     const timestamp = now()
     const ticket: TicketRecord = {
       id: brandString<TicketId>(`ticket-${randomUUID()}`),
@@ -426,6 +441,8 @@ export class BotRegistry extends Service {
       stage: 'queued',
       routerSession: bot.routerSession,
       ...(workspace === undefined ? {} : { workspace }),
+      ...(blockedBy === undefined ? {} : { blockedBy }),
+      ...(acceptance === undefined ? {} : { acceptance }),
       ...(parent === undefined
         ? {}
         : { parentTicket: parent.ticket.id, parentBotName: parent.bot.name, handoffDepth: parent.depth }),
@@ -433,8 +450,18 @@ export class BotRegistry extends Service {
       updatedAt: timestamp,
     }
     await this.ticketsTable.put(ticket.id, ticket)
+    if (!this.blockersReady(ticket)) return ticket
     if (this.activeWorkers(bot.id) >= this.maxWorkersPerBot) return ticket
     return await this.launchTicket(bot, ticket)
+  }
+
+  /** Whether every ticket this one waits for has reached `ready`. */
+  private blockersReady(ticket: TicketRecord): boolean {
+    if (ticket.blockedBy === undefined) return true
+    return ticket.blockedBy.every((blockerId) => {
+      const blocker = this.ticketsTable.get(blockerId)
+      return blocker !== undefined && blocker.stage === 'ready'
+    })
   }
 
   /** Worker Sessions currently holding a slot for one bot. */
@@ -486,7 +513,7 @@ export class BotRegistry extends Service {
         let active = this.activeWorkers(botId)
         const queued = [...this.ticketsTable.entries()]
           .map(([, ticket]) => ticket)
-          .filter(ticket => String(ticket.botId) === String(botId) && ticket.stage === 'queued')
+          .filter(ticket => String(ticket.botId) === String(botId) && ticket.stage === 'queued' && this.blockersReady(ticket))
           .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
         for (const ticket of queued) {
           if (active >= this.maxWorkersPerBot) break
@@ -521,6 +548,16 @@ export class BotRegistry extends Service {
       ...(verdict === undefined ? {} : { verdict }),
       updatedAt: now(),
     }))
+    if (report.stage === 'failed') {
+      for (const [id, dependent] of [...this.ticketsTable.entries()]) {
+        if (dependent.stage !== 'queued' || dependent.blockedBy === undefined) continue
+        if (!dependent.blockedBy.some(blockerId => String(blockerId) === String(ticketId))) continue
+        const summary = `blocked by ticket ${ticketId}, which failed`
+        const updatedDependent = await this.ticketsTable.update(id, current =>
+          current.stage === 'queued' ? { ...current, stage: 'blocked', summary, updatedAt: now() } : current)
+        if (updatedDependent.stage === 'blocked') await this.notifyRouter(updatedDependent, 'blocked', summary)
+      }
+    }
     if (report.stage === 'ready' || report.stage === 'failed' || report.stage === 'blocked') {
       this.clearBudget(ticketId)
     }
@@ -1025,6 +1062,8 @@ export class BotRegistry extends Service {
           title: { type: 'string', required: true, description: 'Short title for the work, shown in the panel.' },
           instruction: { type: 'string', required: true, description: 'The complete instruction the worker executes, including every fact it needs.' },
           workspace: { type: 'string', description: 'Optional absolute working directory for this ticket\'s worker. Omit to run in the bot\'s workspace.' },
+          blocked_by: { type: 'array', items: { type: 'string' }, description: 'Ticket ids that must reach ready before this ticket starts.' },
+          acceptance: { type: 'array', items: { type: 'string' }, description: 'Acceptance criteria the worker must satisfy.' },
         },
         output: {
           schema: {
@@ -1046,6 +1085,8 @@ export class BotRegistry extends Service {
             title: args.title,
             instruction: args.instruction,
             ...(args.workspace === undefined ? {} : { workspace: args.workspace }),
+            ...(args.blocked_by === undefined ? {} : { blockedBy: args.blocked_by as TicketId[] }),
+            ...(args.acceptance === undefined ? {} : { acceptance: args.acceptance }),
           })
           return {
             ticketId: ticket.id,
