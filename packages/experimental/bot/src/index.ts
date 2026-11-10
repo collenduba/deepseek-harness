@@ -557,6 +557,10 @@ export class BotRegistry extends Service {
         if (dependent.stage !== 'blocked' || dependent.blockedBy === undefined) continue
         if (!dependent.blockedBy.some(blockerId => String(blockerId) === String(ticketId))) continue
         if (!(dependent.summary ?? '').startsWith(`blocked by ticket ${ticketId}`)) continue
+        const othersReady = dependent.blockedBy
+          .filter(blockerId => String(blockerId) !== String(ticketId))
+          .every(blockerId => this.ticketsTable.get(blockerId)?.stage === 'ready')
+        if (!othersReady) continue
         await this.ticketsTable.update(id, current =>
           current.stage === 'blocked' ? withStage(current, 'queued', `unblocked by ticket ${ticketId}`) : current)
       }
