@@ -170,6 +170,9 @@ describe('pull requests', () => {
     expect(text).toContain('Never push, merge, force-push')
     expect(pullRequestInstruction('o/r', pr(3, 'abcdef123456'), '/tmp/wt'))
       .toContain('isolated checkout of this revision at /tmp/wt')
+    expect(pullRequestInstruction('o/r', pr(3, 'abcdef123456'))).not.toContain('bot_request_approval')
+    expect(pullRequestInstruction('o/r', pr(3, 'abcdef123456'), undefined, true))
+      .toContain('o/r#3@abcdef123456')
   })
 })
 

@@ -190,6 +190,7 @@ export function pullRequestInstruction(
   repository: string,
   pullRequest: GithubPullRequest,
   workspace?: string,
+  merge = false,
 ): string {
   const short = pullRequest.headRefOid.slice(0, 8)
   const worktree = `../review-${pullRequest.number}-${short}`
@@ -217,9 +218,13 @@ export function pullRequestInstruction(
     'List findings as `path:line — severity — problem — suggested fix`. If nothing is wrong, say so and list what you checked.',
     'Then call bot_report with the ticket id from your instructions, stage ready, a one-line summary, and verdict "pass" when no blocker remains or "fail" otherwise.',
     'Never push, merge, force-push, or change the pull request.',
-    'If the verdict is "pass", request a merge approval with bot_request_approval: action "merge" and payload',
-    `  ${mergePayload(repository, pullRequest.number, pullRequest.headRefOid)}`,
-    'so a person can authorize bot_merge. Never merge the pull request yourself.',
+    ...merge
+      ? [
+        'If the verdict is "pass", request a merge approval with bot_request_approval: action "merge" and payload',
+        `  ${mergePayload(repository, pullRequest.number, pullRequest.headRefOid)}`,
+        'so a person can authorize bot_merge. Never merge the pull request yourself.',
+      ]
+      : [],
   ].join('\n')
 }
 
@@ -389,6 +394,35 @@ export async function removeLabel(
   if (result.exitCode !== 0 && !result.stderr.includes('not found')) {
     throw new Error(`gh pr edit failed: ${result.stderr}`)
   }
+}
+
+/**
+ * Read a pull request's current head SHA.
+ * @param options - repository and executable.
+ * @param number - pull request number.
+ * @param signal - poll cancellation.
+ * @returns the head SHA.
+ */
+export async function pullRequestHead(
+  options: PollOptions,
+  number: number,
+  signal: AbortSignal,
+): Promise<string> {
+  const result = await execa(options.ghCommand, [
+    'pr', 'view', String(number), '--repo', options.repository, '--json', 'headRefOid',
+  ], {
+    env: { ...scrubbedParentEnv(), ...GH_ENV },
+    extendEnv: false,
+    stdin: 'ignore',
+    reject: false,
+    timeout: options.timeoutMs,
+    cancelSignal: signal,
+    maxBuffer: 8 * 1024 * 1024,
+  })
+  if (result.timedOut) throw new Error(`gh pr view timed out after ${options.timeoutMs}ms`)
+  if (result.exitCode !== 0) throw new Error(`gh pr view failed: ${result.stderr}`)
+  const parsed = z.object({ headRefOid: z.string().min(1) }).parse(JSON.parse(result.stdout))
+  return parsed.headRefOid
 }
 
 /**

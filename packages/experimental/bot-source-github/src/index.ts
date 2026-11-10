@@ -14,7 +14,8 @@ import type { BotId, TicketStage } from '@deepseek-ai/dsh-bot'
 import z from '@deepseek-ai/schemastery'
 import {
   admitted, candidateOf, commentIssue, freshIssues, freshPullRequests, listIssues, listPullRequests,
-  labelPullRequest, mergePayload, mergeRefusal, mergePullRequest, prepareReviewWorktree, pullRequestCandidateOf, pullRequestInstruction,
+  labelPullRequest, mergePayload, mergeRefusal, mergePullRequest, prepareReviewWorktree,
+  pullRequestHead, pullRequestCandidateOf, pullRequestInstruction,
   pullRequestChecksPass, removeLabel, removeReviewWorktree, reportComment, ticketInstruction,
 } from './github.ts'
 import type { GithubIssue, GithubPullRequest } from './github.ts'
@@ -380,7 +381,7 @@ export async function runSource(
               const ticket = await ctx.bots.openTicket({
                 routerSession: bot.routerSession,
                 title: `Review #${pullRequest.number} ${pullRequest.title}`,
-                instruction: pullRequestInstruction(config.repository, pullRequest, workspace),
+                instruction: pullRequestInstruction(config.repository, pullRequest, workspace, config.merge),
                 ...(workspace === undefined ? {} : { workspace }),
               })
               await candidates.put(candidate.id, {
@@ -563,22 +564,24 @@ function registerTools(ctx: Context, config: Config, state: SourceState): void {
         .filter(approval => approval.status === 'approved' && approval.action === 'merge')
         .map(approval => approval.payload)
       const payload = mergePayload(config.repository, args.number, args.head_sha)
-      const refusal = mergeRefusal({
-        enabled: config.merge,
-        gate: candidate?.gate,
-        candidateHead: candidate?.headSha,
-        currentHead: candidate?.headSha,
-        approvedPayloads: approved,
-        payload,
-      })
-      if (refusal !== undefined) throw new Error(refusal)
       const options = {
         repository: config.repository,
         query: config.query,
         ghCommand: config.ghCommand,
         timeoutMs: config.timeoutMs,
       }
-      await mergePullRequest(options, args.number, new AbortController().signal)
+      const signal = new AbortController().signal
+      const currentHead = await pullRequestHead(options, args.number, signal)
+      const refusal = mergeRefusal({
+        enabled: config.merge,
+        gate: candidate?.gate,
+        candidateHead: candidate?.headSha,
+        currentHead,
+        approvedPayloads: approved,
+        payload,
+      })
+      if (refusal !== undefined) throw new Error(refusal)
+      await mergePullRequest(options, args.number, signal)
       return { merged: true, number: args.number }
     },
     presentCall: args => ({ card: 'generic', title: 'bot_merge', rawInput: args }),
