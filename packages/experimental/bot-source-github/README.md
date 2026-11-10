@@ -98,11 +98,11 @@ The `gh` CLI must be authenticated on the Host. The source inherits the scrubbed
 
 #### What the model sees
 
-`bot_candidates` takes an optional `state` and `limit` and returns `{ candidates: [{ number, title, state, ticketId? }] }`. `bot_accept_candidate` takes `number` and returns `{ ticketId, number }`. `bot_merge` takes `number` and `head_sha` and returns `{ merged, number }`. Their descriptions and schemas are declared in the source plugin.
+`bot_candidates` takes an optional `state` and `limit` and returns `{ candidates: [{ number, title, state, ticketId? }] }`. `bot_accept_candidate` takes `number` and returns `{ ticketId, number }`. `bot_merge` takes `number` and `head_sha`, refuses unless the gate is ready and a person approved that exact head, and returns `{ merged, number }`. Their descriptions and schemas are declared in the source plugin.
 
 #### Token effect
 
-Two schemas per Agent that mounts the plugin, and one short result per call.
+Three schemas per Agent that mounts the plugin, and one short result per call.
 
 #### KV Cache effect
 
