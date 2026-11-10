@@ -217,6 +217,9 @@ export function pullRequestInstruction(
     'List findings as `path:line — severity — problem — suggested fix`. If nothing is wrong, say so and list what you checked.',
     'Then call bot_report with the ticket id from your instructions, stage ready, a one-line summary, and verdict "pass" when no blocker remains or "fail" otherwise.',
     'Never push, merge, force-push, or change the pull request.',
+    'If the verdict is "pass", request a merge approval with bot_request_approval: action "merge" and payload',
+    `  ${mergePayload(repository, pullRequest.number, pullRequest.headRefOid)}`,
+    'so a person can authorize bot_merge. Never merge the pull request yourself.',
   ].join('\n')
 }
 
@@ -416,6 +419,59 @@ export async function pullRequestChecksPass(
   const parsed: unknown = JSON.parse(result.stdout)
   const rollup = (parsed as { statusCheckRollup?: readonly { conclusion?: string | null }[] }).statusCheckRollup ?? []
   return rollupPasses(rollup)
+}
+
+/** The payload one merge approval covers for a pull-request revision. */
+export function mergePayload(repository: string, number: number, headSha: string): string {
+  return `${repository}#${number}@${headSha}`
+}
+
+/**
+ * Whether a merge is authorized by a passing gate and an approved request.
+ * @param input - candidate gate, head, current head, and approved payloads.
+ * @returns the refusal reason, or undefined when the merge may proceed.
+ */
+export function mergeRefusal(input: {
+  readonly enabled: boolean
+  readonly gate: string | undefined
+  readonly candidateHead: string | undefined
+  readonly currentHead: string | undefined
+  readonly approvedPayloads: readonly string[]
+  readonly payload: string
+}): string | undefined {
+  if (!input.enabled) return 'merging is disabled'
+  if (input.gate !== 'ready') return 'the review gate is not ready'
+  if (input.candidateHead === undefined || input.candidateHead !== input.currentHead) {
+    return 'the reviewed revision is not the current head'
+  }
+  if (!input.approvedPayloads.includes(input.payload)) return 'no approved merge request covers this revision'
+  return undefined
+}
+
+/**
+ * Merge one pull request with a squash merge.
+ * @param options - repository and executable.
+ * @param number - pull request number.
+ * @param signal - poll cancellation.
+ */
+export async function mergePullRequest(
+  options: PollOptions,
+  number: number,
+  signal: AbortSignal,
+): Promise<void> {
+  const result = await execa(options.ghCommand, [
+    'pr', 'merge', String(number), '--repo', options.repository, '--squash',
+  ], {
+    env: { ...scrubbedParentEnv(), ...GH_ENV },
+    extendEnv: false,
+    stdin: 'ignore',
+    reject: false,
+    timeout: options.timeoutMs,
+    cancelSignal: signal,
+    maxBuffer: 8 * 1024 * 1024,
+  })
+  if (result.timedOut) throw new Error(`gh pr merge timed out after ${options.timeoutMs}ms`)
+  if (result.exitCode !== 0) throw new Error(`gh pr merge failed: ${result.stderr}`)
 }
 
 /**
