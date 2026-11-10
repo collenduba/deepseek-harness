@@ -115,6 +115,8 @@ describe('rollupPasses', () => {
     expect(rollupPasses([{ status: 'IN_PROGRESS' }])).toBe(false)
     expect(rollupPasses([{ state: 'SUCCESS' }, { conclusion: 'SUCCESS' }])).toBe(true)
     expect(rollupPasses([{ state: 'FAILURE' }])).toBe(false)
+    expect(rollupPasses([], false)).toBe(true)
+    expect(rollupPasses([], true)).toBe(false)
   })
 })
 

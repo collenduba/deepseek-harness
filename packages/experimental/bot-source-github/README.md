@@ -53,6 +53,7 @@ Mount the plugin with a bot and a repository. The shipped `@deepseek-ai/dsh-bot-
 | `gateLabel` | `merge-ready` | Label added when the review passed and checks are green. |
 | `gateFailLabel` | `needs-work` | Label added when the review found a blocker. |
 | `merge` | `false` | Allow `bot_merge` to squash-merge a gated revision once a person approved that exact head. |
+| `requireChecks` | `true` | Require at least one reported check; `false` treats a pull request with no checks as green. |
 | `writeBack` | `false` | Comment each finished ticket result on its issue, once. |
 | `allowedAuthors` | `[]` | Logins allowed to open work; empty admits everyone. Others are recorded `filtered` and never open a ticket. |
 | `autostart` | `true` | Start the poll loop on mount. Set `false` to register the tools and drive the exported `runSource` yourself. |
@@ -147,7 +148,7 @@ Each ticket starts a new Session, so the instruction establishes that Session's 
 - Admission matches author logins only: organization membership, teams, and bot authors need to be listed explicitly.
 - With `autostart: false` nothing polls until an embedder calls `runSource`; the tools still register and read the same storage.
 - The bot must already exist when a poll finds work; a missing bot is logged and retried.
-- A pull request with no reported checks never reaches `merge-ready`: an empty check rollup is not treated as passing, so a repository without CI needs checks before the gate can label.
+- A pull request with no reported checks never reaches `merge-ready` while `requireChecks` is true; set it to `false` for a repository that has no CI checks, or add a check.
 
 <a id="dev-note"></a>
 ### Dev Note

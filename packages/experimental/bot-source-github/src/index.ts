@@ -57,6 +57,8 @@ export interface Config {
   gate: 'off' | 'label'
   /** Allow bot_merge to merge a gated revision with an approved request. */
   merge: boolean
+  /** Treat a pull request with no reported checks as green. */
+  requireChecks: boolean
   /** Label added when the review passed and checks are green. */
   gateLabel: string
   /** Label added when the review found a blocker. */
@@ -98,6 +100,8 @@ export const Config: z<Config> = z.object({
     .description('Label added when the review passed and checks are green.'),
   merge: z.boolean().default(false)
     .description('Allow bot_merge to merge a gated revision once a person approved the exact head.'),
+  requireChecks: z.boolean().default(true)
+    .description('Treat a pull request with no reported checks as green; true requires at least one passing check.'),
   gateFailLabel: z.string().default('needs-work')
     .description('Label added when the review found a blocker.'),
   includeDrafts: z.boolean().default(false)
@@ -285,7 +289,7 @@ function realDeps(config: Config): SourceDeps {
     listPullRequests: signal => listPullRequests(options, config.includeDrafts, signal),
     prepareWorktree: input => prepareReviewWorktree(options, input),
     addLabel: input => labelPullRequest(options, input.number, input.label, input.signal),
-    checksPass: input => pullRequestChecksPass(options, input.number, input.signal),
+    checksPass: input => pullRequestChecksPass(options, input.number, input.signal, config.requireChecks),
     removeLabel: input => removeLabel(options, input.number, input.label, input.signal),
     removeWorktree: input => removeReviewWorktree(options, input),
     comment: (issueNumber, body, signal) => commentIssue(options, issueNumber, body, signal),

@@ -53,6 +53,7 @@ kind: "package-reference"
 | `gateLabel` | `merge-ready` | 审阅通过且检查全绿时添加的标签。 |
 | `gateFailLabel` | `needs-work` | 审阅发现阻塞项时添加的标签。 |
 | `merge` | `false` | 允许 `bot_merge` 在有人批准该确切 head 后以 squash 方式合并。 |
+| `requireChecks` | `true` | 要求至少一个已报告检查；`false` 时没有检查的拉取请求视为全绿。 |
 | `writeBack` | `false` | 工单结束后在对应 issue 上评论一次结果。 |
 | `allowedAuthors` | `[]` | 允许发起工作的登录名；空表示所有人。其他人只会记录为 `filtered`，不会开工单。 |
 | `autostart` | `true` | 挂载时启动轮询。设为 `false` 时只注册工具，由嵌入方自行调用导出的 `runSource`。 |
@@ -147,7 +148,7 @@ schema 在挂载期间静态；结果追加到对话。
 - 准入只匹配作者登录名：组织成员、团队与 Bot 作者都需要显式列出。
 - `autostart: false` 时不会轮询，直到嵌入方调用 `runSource`；工具仍然注册并读取同一份存储。
 - 轮询发现工作时 Bot 必须已存在；缺少 Bot 会记录日志并重试。
-- 没有任何已报告检查的拉取请求永远不会进入 `merge-ready`：空的检查汇总不被视为通过，因此没有 CI 的仓库需要先有检查，门禁才会打标签。
+- `requireChecks` 为 true 时，没有任何已报告检查的拉取请求永远不会进入 `merge-ready`；没有 CI 的仓库可以把它设为 `false`，或补上一个检查。
 
 <a id="dev-note"></a>
 ### 开发备注

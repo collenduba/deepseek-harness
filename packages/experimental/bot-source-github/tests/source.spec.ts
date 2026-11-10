@@ -48,6 +48,7 @@ const config = (over: Partial<Config> = {}): Config => ({
   gateLabel: 'merge-ready',
   gateFailLabel: 'needs-work',
   merge: false,
+  requireChecks: true,
   maxSeen: 200,
   ...over,
 })

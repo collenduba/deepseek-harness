@@ -332,8 +332,9 @@ export function rollupPasses(rollup: readonly {
   readonly conclusion?: string | null
   readonly status?: string | null
   readonly state?: string | null
-}[]): boolean {
-  return rollup.length > 0 && rollup.every(check =>
+}[], requireChecks = true): boolean {
+  if (rollup.length === 0) return !requireChecks
+  return rollup.every(check =>
     check.conclusion === 'SUCCESS' || check.conclusion === 'NEUTRAL' || check.conclusion === 'SKIPPED'
     || (check.conclusion === undefined && check.state === 'SUCCESS'))
 }
@@ -436,6 +437,7 @@ export async function pullRequestChecksPass(
   options: PollOptions,
   number: number,
   signal: AbortSignal,
+  requireChecks = true,
 ): Promise<boolean> {
   const result = await execa(options.ghCommand, [
     'pr', 'view', String(number), '--repo', options.repository, '--json', 'statusCheckRollup',
@@ -452,7 +454,7 @@ export async function pullRequestChecksPass(
   if (result.exitCode !== 0) throw new Error(`gh pr view failed: ${result.stderr}`)
   const parsed: unknown = JSON.parse(result.stdout)
   const rollup = (parsed as { statusCheckRollup?: readonly { conclusion?: string | null }[] }).statusCheckRollup ?? []
-  return rollupPasses(rollup)
+  return rollupPasses(rollup, requireChecks)
 }
 
 /** The payload one merge approval covers for a pull-request revision. */
