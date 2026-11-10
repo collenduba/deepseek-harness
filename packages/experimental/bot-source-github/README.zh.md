@@ -98,11 +98,11 @@ Host 上的 `gh` CLI 必须已认证。本来源继承清理过的进程环境�
 
 #### 模型看到什么
 
-`bot_candidates` 接收可选的 `state` 与 `limit`，返回 `{ candidates: [{ number, title, state, ticketId? }] }`。`bot_accept_candidate` 接收 `number`，返回 `{ ticketId, number }`。`bot_merge` 接收 `number` 与 `head_sha`，返回 `{ merged, number }`。描述与 schema 在来源插件中声明。
+`bot_candidates` 接收可选的 `state` 与 `limit`，返回 `{ candidates: [{ number, title, state, ticketId? }] }`。`bot_accept_candidate` 接收 `number`，返回 `{ ticketId, number }`。`bot_merge` 接收 `number` 与 `head_sha`，在门禁未就绪或没有人批准确切 head 时拒绝，成功时返回 `{ merged, number }`。描述与 schema 在来源插件中声明。
 
 #### Token 影响
 
-每个挂载该插件的 Agent 承担两个 schema，每次调用一行短结果。
+每个挂载该插件的 Agent 承担三个 schema，每次调用一行短结果。
 
 #### KV Cache 影响
 
