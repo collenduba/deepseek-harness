@@ -45,7 +45,9 @@ async function harness(config: {
   const instructions: string[] = []
   interface PromptSection {
     name: string
-    text: string | ((context: { agent?: { session: { id: SessionId } } }) => string)
+    text: string | ((context: {
+      agent?: { session: { id: SessionId; header: { origin?: 'subagent'; agentPreset?: string } } }
+    }) => string)
   }
   const promptSections: PromptSection[] = []
   const followups: string[] = []
@@ -557,7 +559,7 @@ describe('tickets', () => {
     const section = promptSections.find(entry => entry.name === 'bot:lead')
     expect(section).toBeDefined()
     const text = typeof section!.text === 'function'
-      ? section!.text({ agent: { session: { id: ROUTER } } })
+      ? section!.text({ agent: { session: { id: ROUTER, header: {} } } })
       : section!.text
     expect(text).toContain('bot_create')
     expect(text).toContain('bot_open_ticket')
@@ -565,9 +567,15 @@ describe('tickets', () => {
     await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
     const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Work', instruction: 'Go.' })
     const workerText = typeof section!.text === 'function'
-      ? section!.text({ agent: { session: { id: ticket.workerSession! } } })
+      ? section!.text({ agent: { session: { id: ticket.workerSession!, header: {} } } })
       : section!.text
     expect(workerText).toBe('')
+
+    const ask = (header: { origin?: 'subagent'; agentPreset?: string }): string => typeof section!.text === 'function'
+      ? section!.text({ agent: { session: { id: ROUTER, header } } })
+      : section!.text
+    expect(ask({ origin: 'subagent' })).toBe('')
+    expect(ask({ agentPreset: 'bot-router' })).toBe('')
   })
 
   it('records a stage timeline that the ticket tool returns', async () => {

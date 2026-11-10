@@ -132,16 +132,16 @@ export function requireApproval(
   return { required: true, approved: approvedCommands.has(command), command }
 }
 
-/** Tools every bot worker keeps regardless of its allowlist. */
 /** Standing instruction that makes bot-first delegation the default in every Session. */
 export const BOT_LEAD_INSTRUCTIONS = [
   'You lead this conversation, and this deployment runs durable bots.',
   'For any request with more than a couple of steps or more than one concern, do not do all the work inline:',
   'call bot_create once to bind this conversation as the bot\'s router, then bot_open_ticket for each unit of work with a self-contained instruction and acceptance criteria.',
-  'Workers run in isolated Sessions and report back; use bot_ticket to read a ticket\'s timeline, bot_remember to keep durable notes, and bot_handoff to split work across bots.',
-  'Answer simple one-file edits and single questions directly; never push or merge through a shell command.',
+  'Workers run in isolated Sessions and report back; use bot_ticket to read a ticket\'s timeline and bot_remember to keep durable notes.',
+  'Small single-step edits and questions can be done directly; never push or merge through a shell command.',
 ].join(' ')
 
+/** Tools every bot worker keeps regardless of its allowlist. */
 export const BOT_PROTOCOL_TOOLS: readonly string[] = [
   'bot_handoff',
   'bot_remember',
@@ -278,6 +278,7 @@ export class BotRegistry extends Service {
   private readonly maxHandoffDepth: number
   private readonly workerTimeoutMinutes: number
   private readonly leadInstructions: string
+  private readonly workerSessions = new Set<string>()
   private readonly budgets = new Map<TicketId, ReturnType<typeof setTimeout>>()
   private reconciling = false
   private readonly pumping = new Set<BotId>()
@@ -324,8 +325,11 @@ export class BotRegistry extends Service {
       order: this.ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_SUFFIX') + 1,
       interpolate: false,
       text: (context) => {
-        const sessionId = context.agent?.session.id
-        return sessionId !== undefined && this.isWorkerSession(sessionId) ? '' : this.leadInstructions
+        const session = context.agent?.session
+        if (session === undefined) return this.leadInstructions
+        if (session.header.origin === 'subagent') return ''
+        if (session.header.agentPreset === 'bot-router') return ''
+        return this.isWorkerSession(session.id) ? '' : this.leadInstructions
       },
     }), 'bot.lead')
     queueMicrotask(() => {
@@ -495,6 +499,7 @@ export class BotRegistry extends Service {
 
   /** Whether one Session is the worker of any ticket in this deployment. */
   private isWorkerSession(sessionId: SessionId): boolean {
+    if (this.workerSessions.has(String(sessionId))) return true
     return [...this.ticketsTable.entries()]
       .some(([, ticket]) => ticket.workerSession !== undefined
         && String(ticket.workerSession) === String(sessionId))
@@ -523,7 +528,10 @@ export class BotRegistry extends Service {
       ? undefined
       : { botName: ticket.parentBotName, ticketId: ticket.parentTicket }
     try {
-      const workerSession = await launchWorker(this.ctx, bot, ticket, this.memoriesOf(bot.id), origin)
+      const workerSession = await launchWorker(
+        this.ctx, bot, ticket, this.memoriesOf(bot.id), origin,
+        (id) => { this.workerSessions.add(String(id)) },
+      )
       const launched = await this.ticketsTable.update(ticket.id, current => ({
         ...withStage(current, 'working'),
         workerSession,

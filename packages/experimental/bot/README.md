@@ -21,7 +21,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Default behavior
 
-Every Session that mounts this service receives a standing system-prompt instruction: multi-step or multi-concern requests should go through `bot_create` and `bot_open_ticket` instead of being done inline, while single-file edits and single questions stay direct. Deployments can replace the text with the `leadInstructions` config; setting it to an empty string disables the nudge.
+Lead Sessions that mount this service receive a standing system-prompt instruction: multi-step or multi-concern requests should go through `bot_create` and `bot_open_ticket` instead of being done inline, while small single-step edits and questions stay direct. Ticket workers, subagent children, and `bot-router` Sessions do not receive it. Deployments can replace the text with the `leadInstructions` config; an empty string disables the nudge.
 
 ## Use this package
 

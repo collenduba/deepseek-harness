@@ -21,7 +21,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 默认行为
 
-每个挂载本服务的会话都会收到一条固定的系统提示指令：多步骤或涉及多个方面的请求应通过 `bot_create` 与 `bot_open_ticket` 交给 Bot，而不是全部内联完成；单文件修改与单个问题仍直接处理。部署可以用 `leadInstructions` 配置替换文案；设为空字符串即关闭该提示。
+挂载本服务的引导会话会收到一条固定的系统提示指令：多步骤或涉及多个方面的请求应通过 `bot_create` 与 `bot_open_ticket` 交给 Bot，而不是全部内联完成；小的单步修改与问题仍直接处理。工单执行者、子智能体子会话与 `bot-router` 会话不会收到它。部署可以用 `leadInstructions` 配置替换文案；空字符串则关闭该提示。
 
 ## 使用本包
 
