@@ -552,6 +552,15 @@ export class BotRegistry extends Service {
       ...withStage(current, report.stage, summary),
       ...(verdict === undefined ? {} : { verdict }),
     }))
+    if (report.stage === 'ready') {
+      for (const [id, dependent] of [...this.ticketsTable.entries()]) {
+        if (dependent.stage !== 'blocked' || dependent.blockedBy === undefined) continue
+        if (!dependent.blockedBy.some(blockerId => String(blockerId) === String(ticketId))) continue
+        if (!(dependent.summary ?? '').startsWith(`blocked by ticket ${ticketId}`)) continue
+        await this.ticketsTable.update(id, current =>
+          current.stage === 'blocked' ? withStage(current, 'queued', `unblocked by ticket ${ticketId}`) : current)
+      }
+    }
     if (report.stage === 'failed') {
       for (const [id, dependent] of [...this.ticketsTable.entries()]) {
         if (dependent.stage !== 'queued' || dependent.blockedBy === undefined) continue
