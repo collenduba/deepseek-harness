@@ -65,6 +65,7 @@ kind: "package-reference"
 |---|---|
 | `bot_candidates` | 按最新 issue 优先列出本仓库候选，可按状态过滤。 |
 | `bot_accept_candidate` | 把一个 `would-open` 候选项提升为配置 Bot 上的工单。 |
+| `bot_merge` | 在 `merge` 开启且有人批准确切 head 后合并已过门禁的拉取请求。 |
 
 ```text
 bot_candidates({ state: 'would-open', limit: 10 })
@@ -97,7 +98,7 @@ Host 上的 `gh` CLI 必须已认证。本来源继承清理过的进程环境�
 
 #### 模型看到什么
 
-`bot_candidates` 接收可选的 `state` 与 `limit`，返回 `{ candidates: [{ number, title, state, ticketId? }] }`。`bot_accept_candidate` 接收 `number`，返回 `{ ticketId, number }`。描述与 schema 在来源插件中声明。
+`bot_candidates` 接收可选的 `state` 与 `limit`，返回 `{ candidates: [{ number, title, state, ticketId? }] }`。`bot_accept_candidate` 接收 `number`，返回 `{ ticketId, number }`。`bot_merge` 接收 `number` 与 `head_sha`，返回 `{ merged, number }`。描述与 schema 在来源插件中声明。
 
 #### Token 影响
 

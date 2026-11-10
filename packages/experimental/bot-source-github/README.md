@@ -65,6 +65,7 @@ Mount the plugin with a bot and a repository. The shipped `@deepseek-ai/dsh-bot-
 |---|---|
 | `bot_candidates` | List this repository's candidates, newest issue first, optionally by state. |
 | `bot_accept_candidate` | Promote one `would-open` candidate into a ticket on the configured bot. |
+| `bot_merge` | Merge a gated pull request once a person approved the exact head, when `merge` is on. |
 
 ```text
 bot_candidates({ state: 'would-open', limit: 10 })
@@ -97,7 +98,7 @@ The `gh` CLI must be authenticated on the Host. The source inherits the scrubbed
 
 #### What the model sees
 
-`bot_candidates` takes an optional `state` and `limit` and returns `{ candidates: [{ number, title, state, ticketId? }] }`. `bot_accept_candidate` takes `number` and returns `{ ticketId, number }`. Their descriptions and schemas are declared in the source plugin.
+`bot_candidates` takes an optional `state` and `limit` and returns `{ candidates: [{ number, title, state, ticketId? }] }`. `bot_accept_candidate` takes `number` and returns `{ ticketId, number }`. `bot_merge` takes `number` and `head_sha` and returns `{ merged, number }`. Their descriptions and schemas are declared in the source plugin.
 
 #### Token effect
 
