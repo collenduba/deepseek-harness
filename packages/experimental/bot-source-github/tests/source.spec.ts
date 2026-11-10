@@ -44,6 +44,9 @@ const config = (over: Partial<Config> = {}): Config => ({
   includeDrafts: false,
   worktrees: false,
   worktreeRoot: '',
+  gate: 'off',
+  gateLabel: 'merge-ready',
+  gateFailLabel: 'needs-work',
   maxSeen: 200,
   ...over,
 })
@@ -134,7 +137,13 @@ async function bench(options: {
 /** Boot real storage plus fake bots, and drive the pull-request loop. */
 async function benchPullRequests(
   script: GithubPullRequest[][],
-  options: { worktrees?: boolean; stages?: Record<string, string>; failNumber?: number } = {},
+  options: {
+    worktrees?: boolean
+    stages?: Record<string, string>
+    failNumber?: number
+    verdicts?: Record<string, 'pass' | 'fail'>
+    checks?: boolean
+  } = {},
 ) {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
@@ -147,6 +156,8 @@ async function benchPullRequests(
   const tickets: { title: string; instruction: string; workspace?: string }[] = []
   const prepared: string[] = []
   const removed: string[] = []
+  const labels: { number: number; label: string }[] = []
+  const removedLabels: { number: number; label: string }[] = []
   const bot = {
     id: 'bot-1', name: 'reviewer', job: 'Review', workspace: '/tmp/w', routerSession: ROUTER,
     status: 'active', createdAt: '2026-11-09T00:00:00Z', updatedAt: '2026-11-09T00:00:00Z',
@@ -162,7 +173,9 @@ async function benchPullRequests(
       })
       return Promise.resolve({ id: `ticket-${opened.length}`, title: input.title, instruction: input.instruction, stage: 'working' })
     },
-    ticketsOf: () => Object.entries(options.stages ?? {}).map(([id, stage]) => ({ id, stage })),
+    ticketsOf: () => Object.entries(options.stages ?? {}).map(([id, stage]) => ({
+      id, stage, ...(options.verdicts?.[id] === undefined ? {} : { verdict: options.verdicts[id] }),
+    })),
   })
 
   const controller = new AbortController()
@@ -186,6 +199,15 @@ async function benchPullRequests(
       removed.push(input.path)
       return Promise.resolve()
     },
+    addLabel: (input: { number: number; label: string }) => {
+      labels.push({ number: input.number, label: input.label })
+      return Promise.resolve()
+    },
+    removeLabel: (input: { number: number; label: string }) => {
+      removedLabels.push({ number: input.number, label: input.label })
+      return Promise.resolve()
+    },
+    checksPass: () => Promise.resolve(options.checks ?? true),
     now: () => new Date('2026-11-09T01:00:00Z'),
   }
 
@@ -197,13 +219,14 @@ async function benchPullRequests(
     config({
       target: 'pull-requests', mode: 'auto', pollSeconds: 0,
       worktrees: options.worktrees ?? false, worktreeRoot: '/tmp/worktrees',
+      gate: options.verdicts === undefined ? 'off' : 'label',
     }),
     controller.signal,
     deps,
     state,
   )
   return {
-    opened, tickets, prepared, removed,
+    opened, tickets, prepared, removed, labels, removedLabels,
     candidates: [...state.candidates.entries()].map(([, candidate]) => candidate),
   }
 }
@@ -284,6 +307,39 @@ describe('github source loop', () => {
     expect(removed).toEqual(['/tmp/worktrees/review-2-sha-a'])
     expect(candidates[0]?.worktree).toBe('/tmp/worktrees/review-2-sha-a')
     expect(candidates[0]?.cleanedAt).toBeDefined()
+  })
+
+  it('labels a passing review only when its checks are green', async () => {
+    const pass = await benchPullRequests(
+      [[], [pullRequest(3, 'sha-c')], [pullRequest(3, 'sha-c')]],
+      { verdicts: { 'ticket-1': 'pass' }, stages: { 'ticket-1': 'ready' }, checks: true },
+    )
+    expect(pass.labels).toEqual([{ number: 3, label: 'merge-ready' }])
+    expect(pass.removedLabels).toContainEqual({ number: 3, label: 'needs-work' })
+
+    const failing = await benchPullRequests(
+      [[], [pullRequest(3, 'sha-c')], [pullRequest(3, 'sha-c')]],
+      { verdicts: { 'ticket-1': 'pass' }, stages: { 'ticket-1': 'ready' }, checks: false },
+    )
+    expect(failing.labels).toEqual([])
+    expect(failing.removedLabels).toContainEqual({ number: 3, label: 'merge-ready' })
+  })
+
+  it('waits for a ready ticket before labelling', async () => {
+    const { labels } = await benchPullRequests(
+      [[], [pullRequest(5, 'sha-e')], []],
+      { verdicts: { 'ticket-1': 'fail' }, stages: { 'ticket-1': 'waiting' } },
+    )
+    expect(labels).toEqual([])
+  })
+
+  it('labels a failed review even before checks finish', async () => {
+    const { labels, removedLabels } = await benchPullRequests(
+      [[], [pullRequest(4, 'sha-d')], []],
+      { verdicts: { 'ticket-1': 'fail' }, stages: { 'ticket-1': 'ready' } },
+    )
+    expect(labels).toEqual([{ number: 4, label: 'needs-work' }])
+    expect(removedLabels).toContainEqual({ number: 4, label: 'merge-ready' })
   })
 
   it('keeps reviewing other revisions when one worktree cannot be prepared', async () => {

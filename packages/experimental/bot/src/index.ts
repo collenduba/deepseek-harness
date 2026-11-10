@@ -513,10 +513,12 @@ export class BotRegistry extends Service {
       throw new Error(`only the worker Session of ticket '${ticketId}' can report on it`)
     }
     const summary = requireText(report.summary, 'summary')
+    const verdict = report.verdict
     const updated = await this.ticketsTable.update(ticketId, current => ({
       ...current,
       stage: report.stage,
       summary,
+      ...(verdict === undefined ? {} : { verdict }),
       updatedAt: now(),
     }))
     if (report.stage === 'ready' || report.stage === 'failed' || report.stage === 'blocked') {
@@ -1215,6 +1217,7 @@ export class BotRegistry extends Service {
           ticket_id: { type: 'string', required: true, description: 'The ticket id from your instructions.' },
           stage: { type: 'string', required: true, enum: ['waiting', 'ready', 'blocked', 'failed'], description: 'ready when done, waiting when a person must answer, blocked when outside your control, failed when you cannot finish.' },
           summary: { type: 'string', required: true, description: 'One line naming the result or the question.' },
+          verdict: { type: 'string', enum: ['pass', 'fail'], description: "Review outcome: 'pass' when no blocker remains, 'fail' otherwise." },
         },
         output: {
           schema: {
@@ -1223,6 +1226,7 @@ export class BotRegistry extends Service {
             properties: {
               ticketId: { type: 'string', required: true },
               stage: { type: 'string', required: true },
+              verdict: { type: 'string', enum: ['pass', 'fail'] },
             },
           },
           render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
@@ -1232,9 +1236,17 @@ export class BotRegistry extends Service {
           const ticket = await ctx.bots.report(
             exec.agent.session.id,
             brandString<TicketId>(args.ticket_id),
-            { stage: args.stage, summary: args.summary },
+            {
+              stage: args.stage,
+              summary: args.summary,
+              ...(args.verdict === undefined ? {} : { verdict: args.verdict }),
+            },
           )
-          return { ticketId: ticket.id, stage: ticket.stage }
+          return {
+            ticketId: ticket.id,
+            stage: ticket.stage,
+            ...(ticket.verdict === undefined ? {} : { verdict: ticket.verdict }),
+          }
         },
         presentCall: args => ({ card: 'generic', title: 'bot_report', rawInput: args }),
       })),

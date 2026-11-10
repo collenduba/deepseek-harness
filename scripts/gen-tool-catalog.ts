@@ -308,6 +308,9 @@ const TOOL_PACKAGES: ToolPackage[] = [
         includeDrafts: false,
         worktrees: false,
         worktreeRoot: '',
+        gate: 'off',
+        gateLabel: 'merge-ready',
+        gateFailLabel: 'needs-work',
         maxSeen: 200,
       })
     },

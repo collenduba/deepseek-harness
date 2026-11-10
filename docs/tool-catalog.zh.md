@@ -771,9 +771,7 @@ Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/
 
 ### `bot_report`
 
-报告你正在处理的工单结果。只有该工单的执行会话可以调用。包含一行请求者无需打开你的会话就能读懂的摘要。
-
-Report the outcome of the ticket you are working on. Only the ticket's worker Session may call this. Include one line the requester can read without opening your Session.
+报告你正在处理的工单结果。只有该工单的执行会话可以调用。请附上一行请求者无需打开你的会话就能读懂的摘要。
 
 ```json
 {
@@ -796,6 +794,14 @@ Report the outcome of the ticket you are working on. Only the ticket's worker Se
     "summary": {
       "type": "string",
       "description": "One line naming the result or the question."
+    },
+    "verdict": {
+      "type": "string",
+      "description": "Review outcome: 'pass' when no blocker remains, 'fail' otherwise.",
+      "enum": [
+        "pass",
+        "fail"
+      ]
     }
   },
   "required": [
@@ -807,8 +813,6 @@ Report the outcome of the ticket you are working on. Only the ticket's worker Se
 ```
 
 Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/src/index.ts)
-
-<a id="deepseek-aidsh-action-cards"></a>
 
 ### `bot_request_approval`
 

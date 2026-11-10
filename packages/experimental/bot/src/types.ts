@@ -28,6 +28,9 @@ export type BotNoticeId = Branded<'BotNoticeId'>
  */
 export type TicketStage = 'queued' | 'working' | 'waiting' | 'ready' | 'blocked' | 'failed'
 
+/** A review worker's machine-readable outcome for its ticket. */
+export type TicketVerdict = 'pass' | 'fail'
+
 /** Whether a bot accepts new tickets. */
 export type BotStatus = 'active' | 'paused'
 
@@ -89,6 +92,8 @@ export interface TicketRecord {
   readonly parentBotName?: string | undefined
   /** Handoff chain depth; absent on a ticket a person opened. */
   readonly handoffDepth?: number | undefined
+  /** Review outcome recorded by the worker; absent until it reports one. */
+  readonly verdict?: TicketVerdict | undefined
   /** ISO-8601 creation time. */
   readonly createdAt: string
   /** ISO-8601 time of the latest write. */
@@ -164,6 +169,8 @@ export interface TicketReport {
   readonly stage: Extract<TicketStage, 'waiting' | 'ready' | 'blocked' | 'failed'>
   /** One line the requester can read without opening the Session. */
   readonly summary: string
+  /** Review outcome; gate decisions read this instead of parsing prose. */
+  readonly verdict?: TicketVerdict
 }
 
 /** Input accepted by {@link BotRegistry.create}. */

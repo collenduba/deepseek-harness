@@ -36,9 +36,9 @@ async function harness(config: {
   interface CapturedTool {
     name: string
     execute: (
-      args: { title: string; instruction: string; workspace?: string },
+      args: Record<string, unknown>,
       exec: { agent: { session: { id: SessionId } } },
-    ) => Promise<{ ticketId: string; stage: string; summary?: string }>
+    ) => Promise<Record<string, unknown>>
   }
   const toolDefs: CapturedTool[] = []
   const followups: string[] = []
@@ -145,6 +145,32 @@ describe('bot records', () => {
     expect(bot.tools).toEqual(['read', 'grep', 'bash'])
     expect(bot.hardFloor).toEqual(['transfer-funds'])
     expect(ctx.bots.list()[0]?.tools).toEqual(['read', 'grep', 'bash'])
+  })
+
+  it('stores a review verdict and rejects an unknown one', async () => {
+    const { ctx } = await harness()
+    const bot = await ctx.bots.create({
+      name: 'reviewer', job: 'Review pull requests', workspace: '/tmp/work', routerSession: ROUTER,
+    })
+    const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+    const reported = await ctx.bots.report(ticket.workerSession!, ticket.id, {
+      stage: 'ready', summary: 'No blockers.', verdict: 'pass',
+    })
+    expect(reported.verdict).toBe('pass')
+    expect(ctx.bots.ticketsOf(bot.id)[0]?.verdict).toBe('pass')
+  })
+
+  it('exposes the verdict through bot_report', async () => {
+    const { ctx, toolDefs } = await harness()
+    await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
+    const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+    const tool = toolDefs.find(definition => definition.name === 'bot_report')
+    expect(tool).toBeDefined()
+    const result = await tool!.execute(
+      { ticket_id: ticket.id, stage: 'ready', summary: 'No blockers.', verdict: 'pass' },
+      { agent: { session: { id: ticket.workerSession! } } },
+    )
+    expect(result.verdict).toBe('pass')
   })
 
   it('rejects a duplicate name in the same Session and a relative workspace', async () => {
@@ -505,7 +531,7 @@ describe('tickets', () => {
       { agent: { session: { id: ROUTER } } },
     )
     expect(result.stage).toBe('failed')
-    expect(result.summary).toContain('ENOENT')
+    expect(String(result.summary)).toContain('ENOENT')
   })
 
   it('refuses to open a ticket when no bot is bound to the Session', async () => {

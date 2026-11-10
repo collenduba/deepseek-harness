@@ -24,11 +24,11 @@ A bot is a durable record, not a Session. One `bot` storage domain holds five ta
 | `approvals` | action, exact payload, SHA-256 digest, status, decision note |
 | `notices` | router notices with their delivery time |
 
-The domain moved through versions 1–11 as tables and optional fields were added; every version loads the ones before it.
+The domain moved through versions 1–12 as tables and optional fields were added; every version loads the ones before it.
 
 ### Sessions
 
-The Session that calls `bot_create` becomes the bot's router. Each ticket gets its own root Session through `ctx.agents.create`: the bot's workspace or the ticket's own workspace, an optional agent preset, a title of `<bot>: <ticket>`, and one instruction message. The worker is not a subagent, so it survives its creator and appears in the sidebar. A worker that calls `bot_report` is validated against the ticket's recorded worker Session; the report updates the ticket and reaches the router as a structured notice. A bot runs at most `maxWorkersPerBot` workers at once (default 2): further tickets wait in `queued`, and a terminal report starts the oldest. A worker has a wall-clock budget (default 30 minutes) that counts time spent waiting for an answer; a delivered answer moves a waiting ticket back to working and restarts the clock, while a blocked ticket stays blocked: expiry cancels it, reports the ticket blocked, and fills the slot; startup marks workers that are no longer running as blocked and pumps queued tickets once the composition is ready. A handoff chain is refused past `maxHandoffDepth` (default 3).
+The Session that calls `bot_create` becomes the bot's router. Each ticket gets its own root Session through `ctx.agents.create`: the bot's workspace or the ticket's own workspace, an optional agent preset, a title of `<bot>: <ticket>`, and one instruction message. The worker is not a subagent, so it survives its creator and appears in the sidebar. A worker that calls `bot_report` is validated against the ticket's recorded worker Session; the report updates the ticket, may record a review verdict, and reaches the router as a structured notice. A bot runs at most `maxWorkersPerBot` workers at once (default 2): further tickets wait in `queued`, and a terminal report starts the oldest. A worker has a wall-clock budget (default 30 minutes) that counts time spent waiting for an answer; a delivered answer moves a waiting ticket back to working and restarts the clock, while a blocked ticket stays blocked: expiry cancels it, reports the ticket blocked, and fills the slot; startup marks workers that are no longer running as blocked and pumps queued tickets once the composition is ready. A handoff chain is refused past `maxHandoffDepth` (default 3).
 
 ### Tools
 
@@ -54,7 +54,7 @@ Approvals bind a decision to one payload and its digest. The protocol is advisor
 
 ### Sources
 
-`@deepseek-ai/dsh-bot-source-github` polls one repository through `gh`. With `target: pull-requests` it watches each pull-request head revision instead of issues: one candidate per `number@head`, drafts skipped, and one review ticket per revision. With `worktrees` on it fetches the revision into its own worktree, passes it as the ticket workspace, and removes it once the review ticket ends. Every new issue records a candidate; `observe` only logs and `auto` opens a ticket. An author allowlist filters candidates, write-back comments each finished result once, and `bot_candidates` / `bot_accept_candidate` review and promote candidates. The poll loop takes its list and comment effects as arguments, so tests drive observe, auto, admission, and write-back against real storage without a `gh` process; `autostart: false` mounts the tools without polling.
+`@deepseek-ai/dsh-bot-source-github` polls one repository through `gh`. With `target: pull-requests` it watches each pull-request head revision instead of issues: one candidate per `number@head`, drafts skipped, and one review ticket per revision. With `worktrees` on it fetches the revision into its own worktree, passes it as the ticket workspace, and removes it once the review ticket ends. With `gate: label` it labels the pull request from the review ticket's verdict and the reported checks (`merge-ready` or `needs-work`) and never merges. Every new issue records a candidate; `observe` only logs and `auto` opens a ticket. An author allowlist filters candidates, write-back comments each finished result once, and `bot_candidates` / `bot_accept_candidate` review and promote candidates. The poll loop takes its list and comment effects as arguments, so tests drive observe, auto, admission, and write-back against real storage without a `gh` process; `autostart: false` mounts the tools without polling.
 
 ### Panel
 
@@ -95,7 +95,7 @@ The `bot` Session projection folds the logged tool calls, results, and notices i
 
 - Bots are auditable: every ticket names its mandate's origin, its worker, and its outcome; every approval names the digest it decided.
 - Unattended work is bounded: quiet hours, an author allowlist, observe-before-auto, and a shell gate that refuses unapproved commands.
-- The storage domain carries eleven format versions. Each addition is compatible, but the schema and its migration surface grow with every feature.
+- The storage domain carries twelve format versions. Each addition is compatible, but the schema and its migration surface grow with every feature.
 - Approvals are only enforced for guarded shell tools; other consequential actions still depend on the worker following the protocol.
 - Tool allowlists deny at call time, so the model still sees denied tools in its catalog and learns the restriction from the denial.
 - Source behaviour is polling only and stops with the Host, so a bot is not a hosted service.
