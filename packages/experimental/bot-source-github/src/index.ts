@@ -129,6 +129,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.worktrees && config.target !== 'pull-requests') {
     throw new Error('worktrees require target: pull-requests')
   }
+  if (config.target !== 'pull-requests' && (config.gate !== 'off' || config.merge || config.includeDrafts)) {
+    throw new Error('gate, merge, and includeDrafts require target: pull-requests')
+  }
   const domain = await ctx.storageDomain.open(sourceDomainSpec)
   ctx.effect(() => () => domain.close(), 'bot-source-github.domainClose')
   const state: SourceState = {
@@ -234,6 +237,7 @@ async function publishReports(
   if (bot === undefined) return
   const tickets = new Map(ctx.bots.ticketsOf(bot.id).map(ticket => [String(ticket.id), ticket]))
   for (const [, candidate] of [...candidates.entries()]) {
+    if (candidate.repository !== config.repository) continue
     if (candidate.ticketId === undefined || candidate.commentedAt !== undefined) continue
     const ticket = tickets.get(candidate.ticketId)
     if (ticket === undefined) continue
@@ -469,6 +473,7 @@ async function cleanWorktrees(
 ): Promise<void> {
   const stages = new Map<string, TicketStage>(ctx.bots.ticketsOf(bot.id).map(ticket => [String(ticket.id), ticket.stage]))
   for (const [, candidate] of [...candidates.entries()]) {
+    if (candidate.repository !== config.repository) continue
     if (candidate.worktree === undefined || candidate.cleanedAt !== undefined || candidate.ticketId === undefined) continue
     const stage = stages.get(candidate.ticketId)
     if (stage !== 'ready' && stage !== 'failed' && stage !== 'blocked') continue
@@ -504,6 +509,7 @@ async function applyGate(
   const tickets = new Map(ctx.bots.ticketsOf(bot.id).map(ticket => [String(ticket.id), ticket]))
   const checked = new Map<number, boolean>()
   for (const [, candidate] of [...candidates.entries()]) {
+    if (candidate.repository !== config.repository) continue
     if (candidate.state !== 'opened' || candidate.ticketId === undefined) continue
     try {
       const head = heads.get(candidate.number)

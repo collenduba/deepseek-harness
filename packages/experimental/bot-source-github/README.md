@@ -74,7 +74,7 @@ bot_accept_candidate({ number: 42 })
 
 Only `would-open` candidates can be promoted; `filtered` records stay closed until the allowlist changes, and an `opened` record already has a ticket.
 
-The `gh` CLI must be authenticated on the Host with read access; `writeBack` and the label gate need write access to the repository. The source inherits the scrubbed process environment, so `*TOKEN*`, `*KEY*`, `*SECRET*`, and `*PASSWORD*` variables never reach it; `gh` reads its own credential store.
+The `gh` CLI must be authenticated on the Host with read access; `writeBack`, the label gate, and `bot_merge` need write access to the repository. The source inherits the scrubbed process environment, so `*TOKEN*`, `*KEY*`, `*SECRET*`, and `*PASSWORD*` variables never reach it; `gh` reads its own credential store.
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
@@ -142,7 +142,7 @@ Each ticket starts a new Session, so the instruction establishes that Session's 
 
 - Polling only: there are no webhooks and no reactions; `target` selects open issues or pull-request revisions.
 - Write-back covers issues: with `writeBack` on the source posts one comment per finished result. A pull-request review posts its own comment from the worker.
-- Write-back does not close the issue or reply in review threads, and both it and the label gate need `gh` write access.
+- Write-back does not close the issue or reply in review threads, and it, the label gate, and `bot_merge` need `gh` write access.
 - Issue edits do not re-open a ticket; for pull requests, every new head is a new revision.
 - The cursor is per repository, so running two configs for one repository shares state only if they use the same bot and query.
 - `observe` advances the cursor and keeps candidates only in the source's storage; `bot_candidates` lists them, but there is no candidate panel, and switching to `auto` later does not reopen issues or revisions observed earlier.

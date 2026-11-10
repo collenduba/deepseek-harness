@@ -74,7 +74,7 @@ bot_accept_candidate({ number: 42 })
 
 只有 `would-open` 可以被提升；`filtered` 在名单改变前保持关闭，`opened` 已经有工单。
 
-Host 上的 `gh` CLI 必须已认证并具备读权限；`writeBack` 与标签门禁需要仓库写权限。本来源继承清理过的进程环境，因此 `*TOKEN*`、`*KEY*`、`*SECRET*` 与 `*PASSWORD*` 变量不会到达它；`gh` 读取自己的凭据存储。
+Host 上的 `gh` CLI 必须已认证并具备读权限；`writeBack`、标签门禁与 `bot_merge` 需要仓库写权限。本来源继承清理过的进程环境，因此 `*TOKEN*`、`*KEY*`、`*SECRET*` 与 `*PASSWORD*` 变量不会到达它；`gh` 读取自己的凭据存储。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
@@ -142,7 +142,7 @@ schema 在挂载期间静态；结果追加到对话。
 
 - 仅轮询：没有 webhook 与表情回应；`target` 选择开放 issue 或拉取请求修订。
 - 写回覆盖 issue：开启 `writeBack` 时每个完成结果发布一条评论。拉取请求审阅由执行者自行发布评论。
-- 写回不会关闭 issue，也不会回复评审线程；它与标签门禁都需要 `gh` 写权限。
+- 写回不会关闭 issue，也不会回复评审线程；它、标签门禁与 `bot_merge` 都需要 `gh` 写权限。
 - 编辑 issue 不会重新开工单；拉取请求的每个新 head 则是一次新修订。
 - 游标按仓库保存，因此同一仓库的两个配置只有在 Bot 与查询都相同时才共享状态。
 - `observe` 会推进游标，候选只存在来源自己的存储里；`bot_candidates` 可以列出它们，但没有候选面板，之后切到 `auto` 也不会重开先前观察到的 issue 或修订。
