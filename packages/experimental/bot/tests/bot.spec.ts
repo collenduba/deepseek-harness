@@ -578,6 +578,33 @@ describe('tickets', () => {
     expect(dependent?.summary).toContain('which failed')
   })
 
+  it('revives a dependent after its failed blocker recovers', async () => {
+    const { ctx } = await harness()
+    const bot = await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
+    const first = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'First', instruction: 'One.' })
+    const second = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Second', instruction: 'Two.', blockedBy: [first.id] })
+    await ctx.bots.report(first.workerSession!, first.id, { stage: 'failed', summary: 'Broke.' })
+    expect(ctx.bots.ticketsOf(bot.id).find(ticket => ticket.id === second.id)?.stage).toBe('blocked')
+    await ctx.bots.report(first.workerSession!, first.id, { stage: 'ready', summary: 'Fixed.' })
+    const revived = ctx.bots.ticketsOf(bot.id).find(ticket => ticket.id === second.id)
+    expect(revived?.stage).toBe('working')
+    expect(revived?.history?.map(event => event.stage)).toContain('queued')
+  })
+
+  it('keeps a dependent blocked while another blocker still failed', async () => {
+    const { ctx } = await harness()
+    const bot = await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
+    const first = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'First', instruction: 'One.' })
+    const second = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Second', instruction: 'Two.' })
+    const dependent = await ctx.bots.openTicket({
+      routerSession: ROUTER, title: 'Dependent', instruction: 'Three.', blockedBy: [first.id, second.id],
+    })
+    await ctx.bots.report(first.workerSession!, first.id, { stage: 'failed', summary: 'Broke.' })
+    await ctx.bots.report(second.workerSession!, second.id, { stage: 'failed', summary: 'Broke too.' })
+    await ctx.bots.report(first.workerSession!, first.id, { stage: 'ready', summary: 'Fixed.' })
+    expect(ctx.bots.ticketsOf(bot.id).find(ticket => ticket.id === dependent.id)?.stage).toBe('blocked')
+  })
+
   it('keeps dependents waiting while a blocker waits for a person', async () => {
     const { ctx } = await harness()
     const bot = await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
