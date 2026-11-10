@@ -147,6 +147,7 @@ Each ticket starts a new Session, so the instruction establishes that Session's 
 - Admission matches author logins only: organization membership, teams, and bot authors need to be listed explicitly.
 - With `autostart: false` nothing polls until an embedder calls `runSource`; the tools still register and read the same storage.
 - The bot must already exist when a poll finds work; a missing bot is logged and retried.
+- A pull request with no reported checks never reaches `merge-ready`: an empty check rollup is not treated as passing, so a repository without CI needs checks before the gate can label.
 
 <a id="dev-note"></a>
 ### Dev Note
