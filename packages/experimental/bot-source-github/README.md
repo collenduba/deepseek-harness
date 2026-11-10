@@ -148,7 +148,7 @@ Each ticket starts a new Session, so the instruction establishes that Session's 
 - Admission matches author logins only: organization membership, teams, and bot authors need to be listed explicitly.
 - With `autostart: false` nothing polls until an embedder calls `runSource`; the tools still register and read the same storage.
 - The bot must already exist when a poll finds work; a missing bot is logged and retried.
-- A pull request with no reported checks never reaches `merge-ready` while `requireChecks` is true; set it to `false` for a repository that has no CI checks, or add a check.
+- A pull request with no reported checks never reaches `merge-ready` while `requireChecks` is true; set it to `false` for a repository that has no CI checks, or add a check. An empty rollup cannot distinguish a repository without CI from a head whose checks have not registered yet, so with `requireChecks: false` the gate may mark a just-pushed head green before any check reports; CI-backed repositories should keep it `true`.
 
 <a id="dev-note"></a>
 ### Dev Note

@@ -108,7 +108,7 @@ describe('mergeRefusal', () => {
 })
 
 describe('rollupPasses', () => {
-  it('requires every reported check to succeed', () => {
+  it('evaluates empty and reported checks under the policy', () => {
     expect(rollupPasses([], true)).toBe(false)
     expect(rollupPasses([{ conclusion: 'SUCCESS' }, { conclusion: 'SKIPPED' }], true)).toBe(true)
     expect(rollupPasses([{ conclusion: 'SUCCESS' }, { conclusion: 'FAILURE' }], true)).toBe(false)

@@ -159,6 +159,7 @@ async function benchPullRequests(
   const prepared: string[] = []
   const removed: string[] = []
   const labels: { number: number; label: string }[] = []
+  const policies: boolean[] = []
   const removedLabels: { number: number; label: string }[] = []
   const bot = {
     id: 'bot-1', name: 'reviewer', job: 'Review', workspace: '/tmp/w', routerSession: ROUTER,
@@ -209,7 +210,10 @@ async function benchPullRequests(
       removedLabels.push({ number: input.number, label: input.label })
       return Promise.resolve()
     },
-    checksPass: () => Promise.resolve(options.checks ?? true),
+    checksPass: (input: { requireChecks: boolean }) => {
+      policies.push(input.requireChecks)
+      return Promise.resolve(options.checks ?? true)
+    },
     now: () => new Date('2026-11-09T01:00:00Z'),
   }
 
@@ -228,7 +232,7 @@ async function benchPullRequests(
     state,
   )
   return {
-    opened, tickets, prepared, removed, labels, removedLabels,
+    opened, tickets, prepared, removed, labels, removedLabels, policies,
     candidates: [...state.candidates.entries()].map(([, candidate]) => candidate),
   }
 }
@@ -317,6 +321,8 @@ describe('github source loop', () => {
       { verdicts: { 'ticket-1': 'pass' }, stages: { 'ticket-1': 'ready' }, checks: true },
     )
     expect(pass.labels).toEqual([{ number: 3, label: 'merge-ready' }])
+    expect(pass.policies.length).toBeGreaterThan(0)
+    expect(pass.policies.every(Boolean)).toBe(true)
     expect(pass.removedLabels).toContainEqual({ number: 3, label: 'needs-work' })
 
     const failing = await benchPullRequests(

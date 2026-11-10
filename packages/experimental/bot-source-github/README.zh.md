@@ -148,7 +148,7 @@ schema 在挂载期间静态；结果追加到对话。
 - 准入只匹配作者登录名：组织成员、团队与 Bot 作者都需要显式列出。
 - `autostart: false` 时不会轮询，直到嵌入方调用 `runSource`；工具仍然注册并读取同一份存储。
 - 轮询发现工作时 Bot 必须已存在；缺少 Bot 会记录日志并重试。
-- `requireChecks` 为 true 时，没有任何已报告检查的拉取请求永远不会进入 `merge-ready`；没有 CI 的仓库可以把它设为 `false`，或补上一个检查。
+- `requireChecks` 为 true 时，没有任何已报告检查的拉取请求永远不会进入 `merge-ready`；没有 CI 的仓库可以把它设为 `false`，或补上一个检查。空的汇总无法区分“仓库没有 CI”和“刚推送、检查尚未注册”，因此 `requireChecks: false` 时门禁可能在任何检查报告前就把新 head 标为绿色；有 CI 的仓库应保持 `true`。
 
 <a id="dev-note"></a>
 ### 开发备注
