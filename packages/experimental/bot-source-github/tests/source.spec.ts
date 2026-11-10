@@ -311,18 +311,26 @@ describe('github source loop', () => {
 
   it('labels a passing review only when its checks are green', async () => {
     const pass = await benchPullRequests(
-      [[], [pullRequest(3, 'sha-c')], []],
+      [[], [pullRequest(3, 'sha-c')], [pullRequest(3, 'sha-c')]],
       { verdicts: { 'ticket-1': 'pass' }, stages: { 'ticket-1': 'ready' }, checks: true },
     )
     expect(pass.labels).toEqual([{ number: 3, label: 'merge-ready' }])
-    expect(pass.removedLabels).toEqual([{ number: 3, label: 'needs-work' }])
+    expect(pass.removedLabels).toContainEqual({ number: 3, label: 'needs-work' })
 
     const failing = await benchPullRequests(
-      [[], [pullRequest(3, 'sha-c')], []],
+      [[], [pullRequest(3, 'sha-c')], [pullRequest(3, 'sha-c')]],
       { verdicts: { 'ticket-1': 'pass' }, stages: { 'ticket-1': 'ready' }, checks: false },
     )
     expect(failing.labels).toEqual([])
-    expect(failing.removedLabels).toEqual([{ number: 3, label: 'merge-ready' }])
+    expect(failing.removedLabels).toContainEqual({ number: 3, label: 'merge-ready' })
+  })
+
+  it('waits for a ready ticket before labelling', async () => {
+    const { labels } = await benchPullRequests(
+      [[], [pullRequest(5, 'sha-e')], []],
+      { verdicts: { 'ticket-1': 'fail' }, stages: { 'ticket-1': 'waiting' } },
+    )
+    expect(labels).toEqual([])
   })
 
   it('labels a failed review even before checks finish', async () => {
@@ -331,7 +339,7 @@ describe('github source loop', () => {
       { verdicts: { 'ticket-1': 'fail' }, stages: { 'ticket-1': 'ready' } },
     )
     expect(labels).toEqual([{ number: 4, label: 'needs-work' }])
-    expect(removedLabels).toEqual([{ number: 4, label: 'merge-ready' }])
+    expect(removedLabels).toContainEqual({ number: 4, label: 'merge-ready' })
   })
 
   it('keeps reviewing other revisions when one worktree cannot be prepared', async () => {

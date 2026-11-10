@@ -383,7 +383,7 @@ export async function removeLabel(
     maxBuffer: 8 * 1024 * 1024,
   })
   if (result.timedOut) throw new Error(`gh pr edit timed out after ${options.timeoutMs}ms`)
-  if (result.exitCode !== 0 && !String(result.stderr).includes('not found')) {
+  if (result.exitCode !== 0 && !result.stderr.includes('not found')) {
     throw new Error(`gh pr edit failed: ${result.stderr}`)
   }
 }

@@ -342,6 +342,7 @@ export async function runSource(
     try {
       if (pullLister !== undefined) {
         const pullRequests = await pullLister(signal)
+        const heads = new Map(pullRequests.map(pullRequest => [pullRequest.number, pullRequest.headRefOid]))
         const current = cursors.get(key) ?? { seen: [] }
         const fresh = freshPullRequests(current.seen, pullRequests)
         const bot = config.mode === 'auto'
@@ -397,7 +398,7 @@ export async function runSource(
           await cleanWorktrees(ctx, config, deps, candidates, bot, remove, signal)
         }
         if (config.gate === 'label' && bot !== undefined) {
-          await applyGate(ctx, config, deps, candidates, bot, signal)
+          await applyGate(ctx, config, deps, candidates, bot, heads, signal)
         }
       }
       if (pullLister === undefined) {
@@ -478,6 +479,7 @@ async function applyGate(
   deps: SourceDeps,
   candidates: SourceState['candidates'],
   bot: { readonly id: BotId },
+  heads: ReadonlyMap<number, string>,
   signal: AbortSignal,
 ): Promise<void> {
   const label = deps.addLabel?.bind(deps)
@@ -488,8 +490,18 @@ async function applyGate(
   const checked = new Map<number, boolean>()
   for (const [, candidate] of [...candidates.entries()]) {
     if (candidate.state !== 'opened' || candidate.ticketId === undefined) continue
-    const verdict = tickets.get(candidate.ticketId)?.verdict
-    if (verdict === undefined) continue
+    const head = heads.get(candidate.number)
+    if (head === undefined || (candidate.headSha !== undefined && candidate.headSha !== head)) {
+      if (candidate.gate !== undefined && candidate.gate !== 'pending') {
+        await unlabel({ number: candidate.number, label: config.gateLabel, signal })
+        await unlabel({ number: candidate.number, label: config.gateFailLabel, signal })
+        await candidates.put(candidate.id, { ...candidate, gate: 'pending' })
+      }
+      continue
+    }
+    const ticket = tickets.get(candidate.ticketId)
+    const verdict = ticket?.verdict
+    if (verdict === undefined || ticket?.stage !== 'ready') continue
     if (candidate.gate === (verdict === 'pass' ? 'ready' : 'needs-work')) continue
     try {
       if (verdict === 'fail') {
