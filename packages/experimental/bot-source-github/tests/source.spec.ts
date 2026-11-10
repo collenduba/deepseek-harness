@@ -60,6 +60,7 @@ async function bench(options: {
   writeBack?: boolean
   allowedAuthors?: string[]
   ticketStage?: string
+  withPullLister?: boolean
 }) {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
@@ -111,6 +112,9 @@ async function bench(options: {
       controller.abort()
       return Promise.resolve(options.issues)
     },
+    ...(options.withPullLister === true
+      ? { listPullRequests: () => Promise.resolve([]) }
+      : {}),
     comment: (number: number, body: string): Promise<void> => {
       comments.push({ number, body })
       return Promise.resolve()
@@ -359,6 +363,11 @@ describe('github source loop', () => {
     expect(prepared).toEqual(['/tmp/worktrees/review-2-sha-2'])
     expect(candidates.find(candidate => candidate.number === 1)?.state).toBe('would-open')
     expect(candidates.find(candidate => candidate.number === 2)?.state).toBe('opened')
+  })
+
+  it('keeps watching issues when a pull-request lister is also mounted', async () => {
+    const { opened } = await bench({ issues: [issue(7)], mode: 'auto', withPullLister: true })
+    expect(opened).toEqual(['#7 Issue 7'])
   })
 
   it('lists candidates and promotes a would-open one into a ticket', async () => {

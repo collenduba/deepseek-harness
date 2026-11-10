@@ -1,5 +1,5 @@
 ---
-description: "轮询 GitHub issue，并为新 issue 打开 Bot 工单"
+description: "轮询 GitHub issue 或拉取请求修订，并打开 Bot 工单"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-通过 `gh` CLI 观察一个 GitHub 仓库，为每个新的开放 issue 打开一条 Bot 工单；当 `target` 为 `pull-requests` 时，为每个新的拉取请求修订打开工单。指定 Bot 的执行会话收到 issue 标题、URL 与正文作为指令，并在 Bot 的对话中回报。轮询就是全部模型：Host 停止时什么都不运行，也不会写回 GitHub。
+通过 `gh` CLI 观察一个 GitHub 仓库，为每个新的开放 issue 打开一条 Bot 工单；当 `target` 为 `pull-requests` 时，为每个新的拉取请求修订打开工单。指定 Bot 的执行会话收到 issue 或审阅指令，并在 Bot 的对话中回报。开启 `writeBack` 时每个完成的 issue 结果评论一次；轮询就是全部模型，Host 停止时什么都不运行。
 
 ## 目录
 
@@ -74,12 +74,12 @@ bot_accept_candidate({ number: 42 })
 
 只有 `would-open` 可以被提升；`filtered` 在名单改变前保持关闭，`opened` 已经有工单。
 
-Host 上的 `gh` CLI 必须已认证。本来源继承清理过的进程环境，因此 `*TOKEN*`、`*KEY*`、`*SECRET*` 与 `*PASSWORD*` 变量不会到达它；`gh` 读取自己的凭据存储。
+Host 上的 `gh` CLI 必须已认证并具备读权限；`writeBack` 与标签门禁需要仓库写权限。本来源继承清理过的进程环境，因此 `*TOKEN*`、`*KEY*`、`*SECRET*` 与 `*PASSWORD*` 变量不会到达它；`gh` 读取自己的凭据存储。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
-- **游标与候选。** `bot_source_github` 域（版本 4）为每个仓库保存一条 `{ seen: string[] }` 记录，并为每个新 issue 保存一条确定性 id 的候选记录。首次轮询写入种子；之后每次轮询与之比较。版本 1 到版本 3 的存储原样加载。
+- **游标与候选。** `bot_source_github` 域（版本 8）为每个仓库保存一条 `{ seen: string[] }` 记录，并为每个新 issue 或拉取请求修订保存一条确定性 id 的候选记录。版本 1 到版本 7 的存储原样加载。首次轮询写入种子；之后每次轮询与之比较。
 - **投递。** 每个新 issue 先记录候选。`auto` 模式下打开一条标题为 `#<number> <title>` 的工单，把候选标为 `opened` 并附上工单 id，其余行为不变。`observe` 模式下只记录日志、候选保持 `would-open`。issue 按最旧优先处理，且整批记录完成后游标才前进，因此失败会在下次轮询重试整批。
 - **可测试性。** 轮询循环的列表与评论效果以参数传入，测试因此可以在没有 `gh` 进程的情况下，用真实存储覆盖观察、自动、准入与写回。
 - **拉取请求。** `target: pull-requests` 时，每个 `number@head` 组合是独立候选，因此新推送就是一次新审阅，旧修订不会被重开。默认跳过草稿，除非开启 `includeDrafts`。工单指令要求执行者为 head SHA 建立 worktree、对照 base 审阅、遵循仓库约定、运行成本低的检查、用一次 `gh pr comment` 发布摘要，并且绝不推送或合并。
@@ -142,9 +142,10 @@ schema 在挂载期间静态；结果追加到对话。
 
 - 仅轮询：没有 webhook 与表情回应；`target` 选择开放 issue 或拉取请求修订。
 - 写回覆盖 issue：开启 `writeBack` 时每个完成结果发布一条评论。拉取请求审阅由执行者自行发布评论。
+- 写回不会关闭 issue，也不会回复评审线程；它与标签门禁都需要 `gh` 写权限。
 - 编辑 issue 不会重新开工单；拉取请求的每个新 head 则是一次新修订。
 - 游标按仓库保存，因此同一仓库的两个配置只有在 Bot 与查询都相同时才共享状态。
-- `observe` 会推进游标，候选只存在来源自己的存储里；`bot_candidates` 可以列出它们，但没有候选面板，之后切到 `auto` 也不会重开先前观察到的修订。
+- `observe` 会推进游标，候选只存在来源自己的存储里；`bot_candidates` 可以列出它们，但没有候选面板，之后切到 `auto` 也不会重开先前观察到的 issue 或修订。
 - 准入只匹配作者登录名：组织成员、团队与 Bot 作者都需要显式列出。
 - `autostart: false` 时不会轮询，直到嵌入方调用 `runSource`；工具仍然注册并读取同一份存储。
 - 轮询发现工作时 Bot 必须已存在；缺少 Bot 会记录日志并重试。

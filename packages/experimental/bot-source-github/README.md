@@ -1,5 +1,5 @@
 ---
-description: "Poll GitHub issues and open bot tickets for new ones"
+description: "Poll GitHub issues or pull request revisions and open bot tickets"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Watches one GitHub repository through the `gh` CLI and opens one bot ticket per new open issue, or per new pull-request revision when `target` is `pull-requests`. The configured bot's worker Session receives the issue title, URL, and body as its instruction, and reports back in the bot's conversation. Polling is the whole model: nothing runs while the Host is stopped, and there is no write-back to GitHub.
+Watches one GitHub repository through the `gh` CLI and opens one bot ticket per new open issue, or per new pull-request revision when `target` is `pull-requests`. The configured bot's worker Session receives the issue or review instruction and reports back in the bot's conversation. With `writeBack` on it comments each finished issue result once; polling is the whole model, so nothing runs while the Host is stopped.
 
 ## Table of Contents
 
@@ -74,12 +74,12 @@ bot_accept_candidate({ number: 42 })
 
 Only `would-open` candidates can be promoted; `filtered` records stay closed until the allowlist changes, and an `opened` record already has a ticket.
 
-The `gh` CLI must be authenticated on the Host. The source inherits the scrubbed process environment, so `*TOKEN*`, `*KEY*`, `*SECRET*`, and `*PASSWORD*` variables never reach it; `gh` reads its own credential store.
+The `gh` CLI must be authenticated on the Host with read access; `writeBack` and the label gate need write access to the repository. The source inherits the scrubbed process environment, so `*TOKEN*`, `*KEY*`, `*SECRET*`, and `*PASSWORD*` variables never reach it; `gh` reads its own credential store.
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-- **Cursor and candidates.** The `bot_source_github` domain (version 7) stores one `{ seen: string[] }` record per repository and one candidate record per new issue or pull-request revision with a deterministic id. Versions 1 through 7 load unchanged. The first poll writes the seed; every later poll compares against it. Versions 1 through 3 load unchanged.
+- **Cursor and candidates.** The `bot_source_github` domain (version 7) stores one `{ seen: string[] }` record per repository and one candidate record per new issue or pull-request revision with a deterministic id. Versions 1 through 7 load unchanged. The first poll writes the seed; every later poll compares against it.
 - **Delivery.** Each fresh issue records a candidate. In `auto` mode the source opens one ticket titled `#<number> <title>`, marks the candidate `opened` with the ticket id, and reports as before. In `observe` mode it logs what it would have done and leaves the candidate `would-open`. Issues are handled oldest first, and the cursor advances only after the whole batch is recorded, so a failure retries the batch on the next poll.
 - **Testability.** The poll loop takes its list and comment effects as arguments, so a test runs observe, auto, admission, and write-back against real storage with no `gh` process.
 - **Pull requests.** With `target: pull-requests`, each `number@head` pair is its own candidate, so a new push is a new review and an old revision is never reopened. Drafts are skipped unless `includeDrafts` is on. The ticket instruction asks the worker to create a worktree for the head SHA, review against the base, follow the repository's conventions, run cheap checks, post one `gh pr comment` summary, and never push or merge.
@@ -142,9 +142,10 @@ Each ticket starts a new Session, so the instruction establishes that Session's 
 
 - Polling only: there are no webhooks and no reactions; `target` selects open issues or pull-request revisions.
 - Write-back covers issues: with `writeBack` on the source posts one comment per finished result. A pull-request review posts its own comment from the worker.
+- Write-back does not close the issue or reply in review threads, and both it and the label gate need `gh` write access.
 - Issue edits do not re-open a ticket; for pull requests, every new head is a new revision.
 - The cursor is per repository, so running two configs for one repository shares state only if they use the same bot and query.
-- `observe` advances the cursor and keeps candidates only in the source's storage; `bot_candidates` lists them, but there is no candidate panel, and switching to `auto` later does not reopen revisions observed earlier.
+- `observe` advances the cursor and keeps candidates only in the source's storage; `bot_candidates` lists them, but there is no candidate panel, and switching to `auto` later does not reopen issues or revisions observed earlier.
 - Admission matches author logins only: organization membership, teams, and bot authors need to be listed explicitly.
 - With `autostart: false` nothing polls until an embedder calls `runSource`; the tools still register and read the same storage.
 - The bot must already exist when a poll finds work; a missing bot is logged and retried.

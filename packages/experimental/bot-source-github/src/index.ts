@@ -1,7 +1,8 @@
 /**
- * GitHub issue source for bots: poll open issues and open one ticket per new
- * issue on the configured bot. Polling is the whole model — no webhooks, no
- * write-back to GitHub, and nothing runs while the Host is stopped.
+ * GitHub source for bots: poll open issues or pull-request revisions and open
+ * one ticket per new item on the configured bot. Polling is the whole model —
+ * no webhooks, and nothing runs while the Host is stopped; `writeBack`
+ * optionally comments one finished issue result.
  * @module @deepseek-ai/dsh-bot-source-github
  */
 
@@ -334,16 +335,17 @@ export async function runSource(
 ): Promise<void> {
   const { cursors, candidates } = state
   const key = config.repository as SourceKey
-  const pullLister = deps.listPullRequests?.bind(deps)
-  if (config.target === 'pull-requests' && pullLister === undefined) {
+  const wantsPullRequests = config.target === 'pull-requests'
+  const pullLister = wantsPullRequests ? deps.listPullRequests?.bind(deps) : undefined
+  if (wantsPullRequests && pullLister === undefined) {
     throw new Error('the pull-request target needs a pull-request lister')
   }
   if (cursors.get(key) === undefined) {
     const seed = config.backlog === 'open'
       ? []
-      : pullLister === undefined
-        ? (await deps.list(signal)).map(issue => String(issue.number))
-        : (await pullLister(signal)).map(pullRequest => `${pullRequest.number}@${pullRequest.headRefOid}`)
+      : wantsPullRequests
+        ? ((await pullLister?.(signal)) ?? []).map(pullRequest => `${pullRequest.number}@${pullRequest.headRefOid}`)
+        : (await deps.list(signal)).map(issue => String(issue.number))
     await cursors.put(key, { seen: seed.slice(0, config.maxSeen) })
   }
   const sweepBot = ctx.bots.list().find(candidate => candidate.name === config.bot)
@@ -353,7 +355,7 @@ export async function runSource(
   }
   while (!isAborted(signal)) {
     try {
-      if (pullLister !== undefined) {
+      if (wantsPullRequests && pullLister !== undefined) {
         const pullRequests = await pullLister(signal)
         const heads = new Map(pullRequests.map(pullRequest => [pullRequest.number, pullRequest.headRefOid]))
         const current = cursors.get(key) ?? { seen: [] }
@@ -414,7 +416,7 @@ export async function runSource(
           await applyGate(ctx, config, deps, candidates, bot, heads, signal)
         }
       }
-      if (pullLister === undefined) {
+      if (!wantsPullRequests) {
         const issues = await deps.list(signal)
         const current = cursors.get(key) ?? { seen: [] }
         const fresh = freshIssues(current.seen, issues)
