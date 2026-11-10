@@ -109,12 +109,12 @@ describe('mergeRefusal', () => {
 
 describe('rollupPasses', () => {
   it('requires every reported check to succeed', () => {
-    expect(rollupPasses([])).toBe(false)
-    expect(rollupPasses([{ conclusion: 'SUCCESS' }, { conclusion: 'SKIPPED' }])).toBe(true)
-    expect(rollupPasses([{ conclusion: 'SUCCESS' }, { conclusion: 'FAILURE' }])).toBe(false)
-    expect(rollupPasses([{ status: 'IN_PROGRESS' }])).toBe(false)
-    expect(rollupPasses([{ state: 'SUCCESS' }, { conclusion: 'SUCCESS' }])).toBe(true)
-    expect(rollupPasses([{ state: 'FAILURE' }])).toBe(false)
+    expect(rollupPasses([], true)).toBe(false)
+    expect(rollupPasses([{ conclusion: 'SUCCESS' }, { conclusion: 'SKIPPED' }], true)).toBe(true)
+    expect(rollupPasses([{ conclusion: 'SUCCESS' }, { conclusion: 'FAILURE' }], true)).toBe(false)
+    expect(rollupPasses([{ status: 'IN_PROGRESS' }], true)).toBe(false)
+    expect(rollupPasses([{ state: 'SUCCESS' }, { conclusion: 'SUCCESS' }], true)).toBe(true)
+    expect(rollupPasses([{ state: 'FAILURE' }], true)).toBe(false)
     expect(rollupPasses([], false)).toBe(true)
     expect(rollupPasses([], true)).toBe(false)
   })

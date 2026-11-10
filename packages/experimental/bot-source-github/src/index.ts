@@ -57,7 +57,7 @@ export interface Config {
   gate: 'off' | 'label'
   /** Allow bot_merge to merge a gated revision with an approved request. */
   merge: boolean
-  /** Treat a pull request with no reported checks as green. */
+  /** Require at least one reported check; false treats no checks as green. */
   requireChecks: boolean
   /** Label added when the review passed and checks are green. */
   gateLabel: string
@@ -101,7 +101,7 @@ export const Config: z<Config> = z.object({
   merge: z.boolean().default(false)
     .description('Allow bot_merge to merge a gated revision once a person approved the exact head.'),
   requireChecks: z.boolean().default(true)
-    .description('Treat a pull request with no reported checks as green; true requires at least one passing check.'),
+    .description('Require at least one passing check; false treats a pull request with no reported checks as green.'),
   gateFailLabel: z.string().default('needs-work')
     .description('Label added when the review found a blocker.'),
   includeDrafts: z.boolean().default(false)
