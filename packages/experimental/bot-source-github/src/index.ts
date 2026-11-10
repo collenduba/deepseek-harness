@@ -14,7 +14,8 @@ import type { BotId, TicketStage } from '@deepseek-ai/dsh-bot'
 import z from '@deepseek-ai/schemastery'
 import {
   admitted, candidateOf, commentIssue, freshIssues, freshPullRequests, listIssues, listPullRequests,
-  labelPullRequest, prepareReviewWorktree, pullRequestCandidateOf, pullRequestInstruction,
+  labelPullRequest, mergePayload, mergeRefusal, mergePullRequest, prepareReviewWorktree,
+  pullRequestHead, pullRequestCandidateOf, pullRequestInstruction,
   pullRequestChecksPass, removeLabel, removeReviewWorktree, reportComment, ticketInstruction,
 } from './github.ts'
 import type { GithubIssue, GithubPullRequest } from './github.ts'
@@ -54,6 +55,8 @@ export interface Config {
   worktreeRoot: string
   /** Merge-gate action: off, or label the pull request. */
   gate: 'off' | 'label'
+  /** Allow bot_merge to merge a gated revision with an approved request. */
+  merge: boolean
   /** Label added when the review passed and checks are green. */
   gateLabel: string
   /** Label added when the review found a blocker. */
@@ -93,6 +96,8 @@ export const Config: z<Config> = z.object({
     .description('Label a reviewed pull request with gateLabel when its verdict passed and checks are green, or gateFailLabel when it failed.'),
   gateLabel: z.string().default('merge-ready')
     .description('Label added when the review passed and checks are green.'),
+  merge: z.boolean().default(false)
+    .description('Allow bot_merge to merge a gated revision once a person approved the exact head.'),
   gateFailLabel: z.string().default('needs-work')
     .description('Label added when the review found a blocker.'),
   includeDrafts: z.boolean().default(false)
@@ -376,7 +381,7 @@ export async function runSource(
               const ticket = await ctx.bots.openTicket({
                 routerSession: bot.routerSession,
                 title: `Review #${pullRequest.number} ${pullRequest.title}`,
-                instruction: pullRequestInstruction(config.repository, pullRequest, workspace),
+                instruction: pullRequestInstruction(config.repository, pullRequest, workspace, config.merge),
                 ...(workspace === undefined ? {} : { workspace }),
               })
               await candidates.put(candidate.id, {
@@ -533,6 +538,54 @@ async function applyGate(
 
 /** Register the two review tools. */
 function registerTools(ctx: Context, config: Config, state: SourceState): void {
+  ctx.tools.register(defineTool({
+    name: 'bot_merge',
+    description: 'Merge one reviewed pull request. Requires gate ready, the reviewed head to be current, and an approved merge request for that exact revision.',
+    parameters: {
+      number: { type: 'number', required: true, description: 'Pull request number.' },
+      head_sha: { type: 'string', required: true, description: 'Head SHA the approval covers.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { merged: { type: 'boolean', required: true }, number: { type: 'number', required: true } },
+      },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    },
+    execute: async (args) => {
+      const bot = ctx.bots.list().find(candidate => candidate.name === config.bot)
+      if (bot === undefined) throw new Error(`no bot named '${config.bot}'`)
+      const candidateId = brandString<CandidateId>(
+        `candidate-${config.repository}-pr-${String(args.number)}-${args.head_sha}`,
+      )
+      const candidate = state.candidates.get(candidateId)
+      const approved = ctx.bots.approvalsOf(bot.id)
+        .filter(approval => approval.status === 'approved' && approval.action === 'merge')
+        .map(approval => approval.payload)
+      const payload = mergePayload(config.repository, args.number, args.head_sha)
+      const options = {
+        repository: config.repository,
+        query: config.query,
+        ghCommand: config.ghCommand,
+        timeoutMs: config.timeoutMs,
+      }
+      const signal = new AbortController().signal
+      const currentHead = await pullRequestHead(options, args.number, signal)
+      const refusal = mergeRefusal({
+        enabled: config.merge,
+        gate: candidate?.gate,
+        candidateHead: candidate?.headSha,
+        currentHead,
+        approvedPayloads: approved,
+        payload,
+      })
+      if (refusal !== undefined) throw new Error(refusal)
+      await mergePullRequest(options, args.number, signal)
+      return { merged: true, number: args.number }
+    },
+    presentCall: args => ({ card: 'generic', title: 'bot_merge', rawInput: args }),
+  }))
   ctx.tools.register(defineTool({
     name: 'bot_candidates',
     description: 'List GitHub issue candidates this source considered, newest first, with their state: would-open, opened, or filtered.',

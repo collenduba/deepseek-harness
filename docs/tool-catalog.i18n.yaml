@@ -9,8 +9,8 @@
   en: 6cc2cd9ced70bb09
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: c470b624570d7b48
-  zh: f24909702ca9e302
+  en: 80ccc8004746245b
+  zh: b57ac8cce719974f
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762
@@ -63,8 +63,11 @@
   en: d2ef983fe6c285eb
   zh: 6d850836bd6c5d36
 /tool-schema-catalog/deepseek-ai-dsh-bot-source-github/bot-candidates:
-  en: 5f8fddc9fa692715
+  en: 00d5ca0211a76220
   zh: df85a6a5705d281d
+/tool-schema-catalog/deepseek-ai-dsh-bot-source-github/bot-merge:
+  en: 5e9a34d6a33fb290
+  zh: 3d3d8e67982f098a
 /tool-schema-catalog/deepseek-ai-dsh-bot:
   en: 1bd32335c1a42939
   zh: 1bd32335c1a42939
@@ -94,7 +97,7 @@
   zh: d213f7428178d6a2
 /tool-schema-catalog/deepseek-ai-dsh-bot/bot-request-approval:
   en: da2454581b52cd4b
-  zh: 0e221886dccbc11e
+  zh: 566a76c16a2bb810
 /tool-schema-catalog/deepseek-ai-dsh-bot/bot-ticket:
   en: 8384b1b32be518e3
   zh: 7306a392a198842d

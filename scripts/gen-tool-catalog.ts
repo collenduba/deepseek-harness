@@ -311,6 +311,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
         gate: 'off',
         gateLabel: 'merge-ready',
         gateFailLabel: 'needs-work',
+        merge: false,
         maxSeen: 200,
       })
     },

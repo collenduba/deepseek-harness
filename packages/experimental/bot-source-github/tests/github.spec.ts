@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  admitted, candidateOf, rollupPasses, freshIssues, freshPullRequests, parseIssues, parsePullRequests,
+  admitted, candidateOf, mergePayload, mergeRefusal, rollupPasses, freshIssues, freshPullRequests, parseIssues, parsePullRequests,
   prepareReviewWorktree, pullRequestCandidateOf, pullRequestInstruction, removeReviewWorktree, reportComment,
   searchArgs, ticketInstruction,
 } from '../src/github.ts'
@@ -92,6 +92,21 @@ describe('review worktrees', () => {
   })
 })
 
+describe('mergeRefusal', () => {
+  const base = {
+    enabled: true, gate: 'ready', candidateHead: 'sha-1', currentHead: 'sha-1',
+    approvedPayloads: ['o/r#1@sha-1'], payload: 'o/r#1@sha-1',
+  }
+  it('refuses every incomplete condition', () => {
+    expect(mergePayload('o/r', 1, 'sha-1')).toBe('o/r#1@sha-1')
+    expect(mergeRefusal({ ...base, enabled: false })).toContain('disabled')
+    expect(mergeRefusal({ ...base, gate: 'pending' })).toContain('gate is not ready')
+    expect(mergeRefusal({ ...base, candidateHead: 'sha-2' })).toContain('not the current head')
+    expect(mergeRefusal({ ...base, approvedPayloads: [] })).toContain('no approved merge')
+    expect(mergeRefusal(base)).toBeUndefined()
+  })
+})
+
 describe('rollupPasses', () => {
   it('requires every reported check to succeed', () => {
     expect(rollupPasses([])).toBe(false)
@@ -155,6 +170,9 @@ describe('pull requests', () => {
     expect(text).toContain('Never push, merge, force-push')
     expect(pullRequestInstruction('o/r', pr(3, 'abcdef123456'), '/tmp/wt'))
       .toContain('isolated checkout of this revision at /tmp/wt')
+    expect(pullRequestInstruction('o/r', pr(3, 'abcdef123456'))).not.toContain('bot_request_approval')
+    expect(pullRequestInstruction('o/r', pr(3, 'abcdef123456'), undefined, true))
+      .toContain('o/r#3@abcdef123456')
   })
 })
 
