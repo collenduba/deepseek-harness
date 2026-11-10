@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/bot-source-github/README.md
 /:
-  en: 4b8e1884ab443929
-  zh: e748f1c3c836ebe2
+  en: e21e08d4ab58abb8
+  zh: 59b7fe029f1cdfc7
 /deepseek-ai-dsh-bot-source-github:
   en: b6aeae77f5373538
   zh: 7f24796a0452d08a
 /deepseek-ai-dsh-bot-source-github/summary:
-  en: 5f2e6572e6ae35db
-  zh: 2980e8e7b9b7523e
+  en: 58dca44d436dab2d
+  zh: 43cca3cba16fb8a8
 /deepseek-ai-dsh-bot-source-github/table-of-contents:
   en: 2fee9973f19f9401
   zh: 57488629c9a54c40
@@ -18,11 +18,11 @@
   en: c64dde0f16d56fdc
   zh: 4f614cc423b7921a
 /deepseek-ai-dsh-bot-source-github/use-this-package/reviewing-candidates:
-  en: ab57fce42a81e1a0
-  zh: 63e57129fc1041cb
+  en: 3128e09701428219
+  zh: 32b8f4fc590f8930
 /deepseek-ai-dsh-bot-source-github/understand-the-implementation:
-  en: 717035528addae9a
-  zh: 73fbceb3af823583
+  en: 4a66df14f9289380
+  zh: a83a25235c69b9ae
 /deepseek-ai-dsh-bot-source-github/model-experience:
   en: 215e7ba838619b7b
   zh: a311da3843709f90
@@ -63,8 +63,8 @@
   en: a05efe319cd92670
   zh: d45d8c0cadb45ca1
 /deepseek-ai-dsh-bot-source-github/known-limitations-and-deferred-work:
-  en: ece526231aafe2e7
-  zh: 6f4eb8204338f937
+  en: 56534b01f392d6ad
+  zh: f57bd4527334c8f7
 /deepseek-ai-dsh-bot-source-github/known-limitations-and-deferred-work/dev-note:
   en: 9ee0e8f74e73035f
   zh: 633ec2128522ba42
