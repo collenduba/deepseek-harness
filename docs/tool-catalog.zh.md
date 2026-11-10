@@ -794,6 +794,14 @@ Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/
     "summary": {
       "type": "string",
       "description": "One line naming the result or the question."
+    },
+    "verdict": {
+      "type": "string",
+      "description": "Review outcome: 'pass' when no blocker remains, 'fail' otherwise.",
+      "enum": [
+        "pass",
+        "fail"
+      ]
     }
   },
   "required": [
