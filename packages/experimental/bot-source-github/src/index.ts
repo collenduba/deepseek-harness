@@ -57,6 +57,8 @@ export interface Config {
   gate: 'off' | 'label'
   /** Allow bot_merge to merge a gated revision with an approved request. */
   merge: boolean
+  /** Require at least one reported check and every reported check to pass; false treats no reported checks as green. */
+  requireChecks: boolean
   /** Label added when the review passed and checks are green. */
   gateLabel: string
   /** Label added when the review found a blocker. */
@@ -98,6 +100,8 @@ export const Config: z<Config> = z.object({
     .description('Label added when the review passed and checks are green.'),
   merge: z.boolean().default(false)
     .description('Allow bot_merge to merge a gated revision once a person approved the exact head.'),
+  requireChecks: z.boolean().default(true)
+    .description('Require at least one reported check and every reported check to pass; false treats a pull request with no reported checks as green.'),
   gateFailLabel: z.string().default('needs-work')
     .description('Label added when the review found a blocker.'),
   includeDrafts: z.boolean().default(false)
@@ -259,8 +263,12 @@ export interface SourceDeps {
   }): Promise<string>
   /** Add one label to a pull request. */
   addLabel?(input: { readonly number: number; readonly label: string; readonly signal: AbortSignal }): Promise<void>
-  /** Whether every reported check on a pull request passed. */
-  checksPass?(input: { readonly number: number; readonly signal: AbortSignal }): Promise<boolean>
+  /** Whether a pull request's checks are green under the configured policy. */
+  checksPass?(input: {
+    readonly number: number
+    readonly signal: AbortSignal
+    readonly requireChecks: boolean
+  }): Promise<boolean>
   /** Remove one label from a pull request; a missing label is not an error. */
   removeLabel?(input: { readonly number: number; readonly label: string; readonly signal: AbortSignal }): Promise<void>
   /** Remove one review worktree. */
@@ -285,7 +293,7 @@ function realDeps(config: Config): SourceDeps {
     listPullRequests: signal => listPullRequests(options, config.includeDrafts, signal),
     prepareWorktree: input => prepareReviewWorktree(options, input),
     addLabel: input => labelPullRequest(options, input.number, input.label, input.signal),
-    checksPass: input => pullRequestChecksPass(options, input.number, input.signal),
+    checksPass: input => pullRequestChecksPass(options, input.number, input.signal, input.requireChecks),
     removeLabel: input => removeLabel(options, input.number, input.label, input.signal),
     removeWorktree: input => removeReviewWorktree(options, input),
     comment: (issueNumber, body, signal) => commentIssue(options, issueNumber, body, signal),
@@ -517,7 +525,7 @@ async function applyGate(
       }
       let passed = checked.get(candidate.number)
       if (passed === undefined) {
-        passed = await checks({ number: candidate.number, signal })
+        passed = await checks({ number: candidate.number, signal, requireChecks: config.requireChecks })
         checked.set(candidate.number, passed)
       }
       if (!passed) {

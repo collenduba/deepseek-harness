@@ -327,13 +327,18 @@ export async function removeReviewWorktree(
   await git(options, input.repoPath, ['update-ref', '-d', input.ref], input.signal).catch(() => {})
 }
 
-/** Whether every reported check on a pull request passed. */
+/** Whether every reported check on a pull request passed.
+ * @param rollup - reported checks; empty means none were reported.
+ * @param requireChecks - when true, an empty rollup fails; when false, it passes.
+ * @returns whether the checks are green under the policy.
+ */
 export function rollupPasses(rollup: readonly {
   readonly conclusion?: string | null
   readonly status?: string | null
   readonly state?: string | null
-}[]): boolean {
-  return rollup.length > 0 && rollup.every(check =>
+}[], requireChecks: boolean): boolean {
+  if (rollup.length === 0) return !requireChecks
+  return rollup.every(check =>
     check.conclusion === 'SUCCESS' || check.conclusion === 'NEUTRAL' || check.conclusion === 'SKIPPED'
     || (check.conclusion === undefined && check.state === 'SUCCESS'))
 }
@@ -430,12 +435,14 @@ export async function pullRequestHead(
  * @param options - repository and executable.
  * @param number - pull request number.
  * @param signal - poll cancellation.
- * @returns true when every reported check succeeded.
+ * @param requireChecks - when true, no reported checks means not green.
+ * @returns true when the checks are green under the policy.
  */
 export async function pullRequestChecksPass(
   options: PollOptions,
   number: number,
   signal: AbortSignal,
+  requireChecks: boolean,
 ): Promise<boolean> {
   const result = await execa(options.ghCommand, [
     'pr', 'view', String(number), '--repo', options.repository, '--json', 'statusCheckRollup',
@@ -452,7 +459,7 @@ export async function pullRequestChecksPass(
   if (result.exitCode !== 0) throw new Error(`gh pr view failed: ${result.stderr}`)
   const parsed: unknown = JSON.parse(result.stdout)
   const rollup = (parsed as { statusCheckRollup?: readonly { conclusion?: string | null }[] }).statusCheckRollup ?? []
-  return rollupPasses(rollup)
+  return rollupPasses(rollup, requireChecks)
 }
 
 /** The payload one merge approval covers for a pull-request revision. */
