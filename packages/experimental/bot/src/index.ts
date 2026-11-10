@@ -323,7 +323,10 @@ export class BotRegistry extends Service {
       name: 'bot:lead',
       order: this.ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_SUFFIX') + 1,
       interpolate: false,
-      text: this.leadInstructions,
+      text: (context) => {
+        const sessionId = context.agent?.session.id
+        return sessionId !== undefined && this.isWorkerSession(sessionId) ? '' : this.leadInstructions
+      },
     }), 'bot.lead')
     queueMicrotask(() => {
       void this.reconcile().catch((error: unknown) => {
@@ -488,6 +491,13 @@ export class BotRegistry extends Service {
     if (!this.blockersReady(ticket)) return ticket
     if (this.activeWorkers(bot.id) >= this.maxWorkersPerBot) return ticket
     return await this.launchTicket(bot, ticket)
+  }
+
+  /** Whether one Session is the worker of any ticket in this deployment. */
+  private isWorkerSession(sessionId: SessionId): boolean {
+    return [...this.ticketsTable.entries()]
+      .some(([, ticket]) => ticket.workerSession !== undefined
+        && String(ticket.workerSession) === String(sessionId))
   }
 
   /** Whether every ticket this one waits for has reached `ready`. */

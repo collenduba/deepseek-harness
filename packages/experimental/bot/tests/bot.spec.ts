@@ -43,7 +43,11 @@ async function harness(config: {
   }
   const toolDefs: CapturedTool[] = []
   const instructions: string[] = []
-  const promptSections: { name: string; text: string }[] = []
+  interface PromptSection {
+    name: string
+    text: string | ((context: { agent?: { session: { id: SessionId } } }) => string)
+  }
+  const promptSections: PromptSection[] = []
   const followups: string[] = []
   const pushNotice = (message: {
     content: { type: string; text: string }[]
@@ -88,8 +92,8 @@ async function harness(config: {
   })
   ctx.provide('agentDefaultModel' as string, { currentSelection: () => ({ provider: 'mock', model: 'mock' }) })
   ctx.provide('systemPrompt' as string, {
-    section: (section: { name: string; text: string }) => {
-      promptSections.push({ name: section.name, text: section.text })
+    section: (section: PromptSection) => {
+      promptSections.push(section)
       return () => {}
     },
     getSectionOrder: () => 100,
@@ -548,12 +552,22 @@ describe('tickets', () => {
     expect(String(result.summary)).toContain('ENOENT')
   })
 
-  it('registers a standing bot-first instruction for every Session', async () => {
-    const { promptSections } = await harness()
+  it('gives lead Sessions the bot-first instruction but not ticket workers', async () => {
+    const { ctx, promptSections } = await harness()
     const section = promptSections.find(entry => entry.name === 'bot:lead')
-    expect(section?.text).toContain('bot_create')
-    expect(section?.text).toContain('bot_open_ticket')
-    expect(section?.text).toContain('durable bots')
+    expect(section).toBeDefined()
+    const text = typeof section!.text === 'function'
+      ? section!.text({ agent: { session: { id: ROUTER } } })
+      : section!.text
+    expect(text).toContain('bot_create')
+    expect(text).toContain('bot_open_ticket')
+
+    await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
+    const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Work', instruction: 'Go.' })
+    const workerText = typeof section!.text === 'function'
+      ? section!.text({ agent: { session: { id: ticket.workerSession! } } })
+      : section!.text
+    expect(workerText).toBe('')
   })
 
   it('records a stage timeline that the ticket tool returns', async () => {
