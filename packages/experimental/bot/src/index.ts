@@ -548,11 +548,11 @@ export class BotRegistry extends Service {
       ...(verdict === undefined ? {} : { verdict }),
       updatedAt: now(),
     }))
-    if (report.stage !== 'ready') {
+    if (report.stage === 'failed') {
       for (const [id, dependent] of [...this.ticketsTable.entries()]) {
         if (dependent.stage !== 'queued' || dependent.blockedBy === undefined) continue
         if (!dependent.blockedBy.some(blockerId => String(blockerId) === String(ticketId))) continue
-        const summary = `blocked by ticket ${ticketId}, which reported ${report.stage}`
+        const summary = `blocked by ticket ${ticketId}, which failed`
         const updatedDependent = await this.ticketsTable.update(id, current =>
           current.stage === 'queued' ? { ...current, stage: 'blocked', summary, updatedAt: now() } : current)
         if (updatedDependent.stage === 'blocked') await this.notifyRouter(updatedDependent, 'blocked', summary)

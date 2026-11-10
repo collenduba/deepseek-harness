@@ -562,7 +562,18 @@ describe('tickets', () => {
     await ctx.bots.report(first.workerSession!, first.id, { stage: 'failed', summary: 'Broke.' })
     const dependent = ctx.bots.ticketsOf(bot.id).find(ticket => ticket.id === second.id)
     expect(dependent?.stage).toBe('blocked')
-    expect(dependent?.summary).toContain('reported failed')
+    expect(dependent?.summary).toContain('which failed')
+  })
+
+  it('keeps dependents waiting while a blocker waits for a person', async () => {
+    const { ctx } = await harness()
+    const bot = await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
+    const first = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'First', instruction: 'One.' })
+    const second = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Second', instruction: 'Two.', blockedBy: [first.id] })
+    await ctx.bots.report(first.workerSession!, first.id, { stage: 'waiting', summary: 'Need input.' })
+    expect(ctx.bots.ticketsOf(bot.id).find(ticket => ticket.id === second.id)?.stage).toBe('queued')
+    await ctx.bots.report(first.workerSession!, first.id, { stage: 'ready', summary: 'Done.' })
+    expect(ctx.bots.ticketsOf(bot.id).find(ticket => ticket.id === second.id)?.stage).toBe('working')
   })
 
   it('refuses a blocking ticket from another bot and unknown tickets', async () => {
