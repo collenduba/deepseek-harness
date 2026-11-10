@@ -24,7 +24,7 @@ A bot is a durable record, not a Session. One `bot` storage domain holds five ta
 | `approvals` | action, exact payload, SHA-256 digest, status, decision note |
 | `notices` | router notices with their delivery time |
 
-The domain moved through versions 1–13 as tables and optional fields were added; every version loads the ones before it.
+The domain moved through versions 1–14 as tables and optional fields were added; every version loads the ones before it.
 
 ### Sessions
 
@@ -37,7 +37,8 @@ The Session that calls `bot_create` becomes the bot's router. Each ticket gets i
 | `bot_create` | any Session | Binds the conversation as a bot's router, with an optional preset, tool allowlist, and hard-floor actions. |
 | `bot_list` | any | Bots and open ticket counts. |
 | `bot_open_ticket` | router | Opens a ticket and launches its worker. |
-| `bot_report` | worker | Records `waiting`, `ready`, `blocked`, or `failed` with a summary. |
+| `bot_report` | worker | Records `waiting`, `ready`, `blocked`, or `failed` with a summary and an optional verdict. |
+| `bot_ticket` | any | Reads one ticket with its stage timeline, verdict, and summary. |
 | `bot_remember` | router or worker | Writes one durable note that later workers read. |
 | `bot_handoff` | worker | Opens a ticket on another active bot and records the source. |
 | `bot_request_approval` | worker | Stores the exact payload with its digest and notifies the router. |
@@ -95,7 +96,7 @@ The `bot` Session projection folds the logged tool calls, results, and notices i
 
 - Bots are auditable: every ticket names its mandate's origin, its worker, and its outcome; every approval names the digest it decided.
 - Unattended work is bounded: quiet hours, an author allowlist, observe-before-auto, and a shell gate that refuses unapproved commands.
-- The storage domain carries thirteen format versions. Each addition is compatible, but the schema and its migration surface grow with every feature.
+- The storage domain carries fourteen format versions. Each addition is compatible, but the schema and its migration surface grow with every feature.
 - Approvals are only enforced for guarded shell tools; other consequential actions still depend on the worker following the protocol.
 - Tool allowlists deny at call time, so the model still sees denied tools in its catalog and learns the restriction from the denial.
 - Source behaviour is polling only and stops with the Host, so a bot is not a hosted service.

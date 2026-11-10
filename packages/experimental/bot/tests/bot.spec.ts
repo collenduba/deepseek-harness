@@ -538,6 +538,19 @@ describe('tickets', () => {
     expect(String(result.summary)).toContain('ENOENT')
   })
 
+  it('records a stage timeline that the ticket tool returns', async () => {
+    const { ctx, toolDefs } = await harness()
+    const bot = await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
+    const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Review #12', instruction: 'Review.' })
+    await ctx.bots.report(ticket.workerSession!, ticket.id, { stage: 'ready', summary: 'Done.' })
+    expect(ctx.bots.ticketsOf(bot.id)[0]?.history?.map(event => event.stage)).toEqual(['queued', 'working', 'ready'])
+    const tool = toolDefs.find(definition => definition.name === 'bot_ticket')
+    expect(tool).toBeDefined()
+    const result = await tool!.execute({ ticket_id: ticket.id }, { agent: { session: { id: ROUTER } } })
+    expect(Array.isArray(result.history)).toBe(true)
+    expect((result.history as { stage: string }[]).map(event => event.stage)).toEqual(['queued', 'working', 'ready'])
+  })
+
   it('waits for blocking tickets and starts when they reach ready', async () => {
     const { ctx, instructions } = await harness()
     const bot = await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
