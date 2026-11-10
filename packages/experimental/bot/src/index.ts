@@ -69,6 +69,8 @@ export interface BotAttentionConfig {
   maxWorkersPerBot: number
   /** Deepest handoff chain a ticket may belong to. */
   maxHandoffDepth: number
+  /** Standing instruction that makes bot-first delegation the default. */
+  leadInstructions: string
   /** Minutes one worker may run before it is cancelled; 0 disables the budget. */
   workerTimeoutMinutes: number
 }
@@ -129,6 +131,15 @@ export function requireApproval(
   if (typeof command !== 'string') return { required: true, approved: false }
   return { required: true, approved: approvedCommands.has(command), command }
 }
+
+/** Standing instruction that makes bot-first delegation the default in every Session. */
+export const BOT_LEAD_INSTRUCTIONS = [
+  'You lead this conversation, and this deployment runs durable bots.',
+  'For any request with more than a couple of steps or more than one concern, do not do all the work inline:',
+  'call bot_create once to bind this conversation as the bot\'s router, then bot_open_ticket for each unit of work with a self-contained instruction and acceptance criteria.',
+  'Workers run in isolated Sessions and report back; use bot_ticket to read a ticket\'s timeline and bot_remember to keep durable notes.',
+  'Small single-step edits and questions can be done directly; never push or merge through a shell command.',
+].join(' ')
 
 /** Tools every bot worker keeps regardless of its allowlist. */
 export const BOT_PROTOCOL_TOOLS: readonly string[] = [
@@ -230,6 +241,7 @@ export class BotRegistry extends Service {
     'sessionTitle',
     'sessionProjections',
     'workspaceRegistry',
+    'systemPrompt',
   ]
 
   /** Deployment attention policy. */
@@ -246,6 +258,8 @@ export class BotRegistry extends Service {
       .description('Worker Sessions one bot may run at once; extra tickets wait in queued.'),
     maxHandoffDepth: z.natural().max(10).default(3)
       .description('Deepest handoff chain a ticket may belong to.'),
+    leadInstructions: z.string().default(BOT_LEAD_INSTRUCTIONS)
+      .description('Standing instruction that makes bot-first delegation the default in every Session.'),
     workerTimeoutMinutes: z.natural().max(720).default(30)
       .description('Minutes a worker turn may run before it is cancelled; an answer restarts the clock, and 0 disables the budget.'),
   })
@@ -263,6 +277,8 @@ export class BotRegistry extends Service {
   private readonly maxWorkersPerBot: number
   private readonly maxHandoffDepth: number
   private readonly workerTimeoutMinutes: number
+  private readonly leadInstructions: string
+  private readonly workerSessions = new Set<string>()
   private readonly budgets = new Map<TicketId, ReturnType<typeof setTimeout>>()
   private reconciling = false
   private readonly pumping = new Set<BotId>()
@@ -278,6 +294,7 @@ export class BotRegistry extends Service {
     this.maxWorkersPerBot = config.maxWorkersPerBot ?? 2
     this.maxHandoffDepth = config.maxHandoffDepth ?? 3
     this.workerTimeoutMinutes = config.workerTimeoutMinutes ?? 30
+    this.leadInstructions = config.leadInstructions ?? BOT_LEAD_INSTRUCTIONS
   }
 
   /** Open the domain and register the model tools. */
@@ -303,6 +320,18 @@ export class BotRegistry extends Service {
       'bot.approvalGate',
     )
     this.ctx.effect(() => this.registerTools(), 'bot.tools')
+    this.ctx.effect(() => this.ctx.systemPrompt.section({
+      name: 'bot:lead',
+      order: this.ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_SUFFIX') + 1,
+      interpolate: false,
+      text: (context) => {
+        const session = context.agent?.session
+        if (session === undefined) return this.leadInstructions
+        if (session.header.origin === 'subagent') return ''
+        if (session.header.agentPreset === 'bot-router') return ''
+        return this.isWorkerSession(session.id) ? '' : this.leadInstructions
+      },
+    }), 'bot.lead')
     queueMicrotask(() => {
       void this.reconcile().catch((error: unknown) => {
         this.ctx.logger.warn(`bot: startup reconciliation failed: ${String(error)}`)
@@ -468,6 +497,14 @@ export class BotRegistry extends Service {
     return await this.launchTicket(bot, ticket)
   }
 
+  /** Whether one Session is the worker of any ticket in this deployment. */
+  private isWorkerSession(sessionId: SessionId): boolean {
+    if (this.workerSessions.has(String(sessionId))) return true
+    return [...this.ticketsTable.entries()]
+      .some(([, ticket]) => ticket.workerSession !== undefined
+        && String(ticket.workerSession) === String(sessionId))
+  }
+
   /** Whether every ticket this one waits for has reached `ready`. */
   private blockersReady(ticket: TicketRecord): boolean {
     if (ticket.blockedBy === undefined) return true
@@ -491,7 +528,10 @@ export class BotRegistry extends Service {
       ? undefined
       : { botName: ticket.parentBotName, ticketId: ticket.parentTicket }
     try {
-      const workerSession = await launchWorker(this.ctx, bot, ticket, this.memoriesOf(bot.id), origin)
+      const workerSession = await launchWorker(
+        this.ctx, bot, ticket, this.memoriesOf(bot.id), origin,
+        (id) => { this.workerSessions.add(String(id)) },
+      )
       const launched = await this.ticketsTable.update(ticket.id, current => ({
         ...withStage(current, 'working'),
         workerSession,

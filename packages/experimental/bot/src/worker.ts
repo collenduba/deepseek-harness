@@ -95,6 +95,7 @@ export async function launchWorker(
   ticket: TicketRecord,
   memories: readonly BotMemoryRecord[] = [],
   origin?: TicketOrigin,
+  onSession?: (sessionId: SessionId) => void,
 ): Promise<SessionId> {
   const workspace = await ctx.workspaceRegistry.create(ticket.workspace ?? bot.workspace)
   const sessionId = brandString<SessionId>(`bot-worker-${randomUUID()}`)
@@ -113,6 +114,7 @@ export async function launchWorker(
     const registry = presets
     mountPreset = async (agentCtx: Context) => { await registry.mount(agentCtx, resolved.id) }
   }
+  onSession?.(sessionId)
   let handle
   if (presetId === undefined || mountPreset === undefined) {
     handle = await ctx.agents.create({

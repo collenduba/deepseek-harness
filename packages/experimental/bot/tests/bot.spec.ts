@@ -10,6 +10,7 @@ import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/help
 import BotRegistry, {
   approvalRecordSchema, botProjection, botRecordSchema, isQuietAt, memoryRecordSchema, parseQuietHours,
   ticketRecordSchema, blockedCommand, botDomainSpec, capabilityAllows, isHardFloor, requireApproval, workerInstruction,
+  BOT_LEAD_INSTRUCTIONS,
 } from '../src/index.ts'
 import type { BotApprovalId, BotId, BotMemoryId, BotProjectionState, TicketId } from '../src/index.ts'
 
@@ -42,6 +43,13 @@ async function harness(config: {
   }
   const toolDefs: CapturedTool[] = []
   const instructions: string[] = []
+  interface PromptSection {
+    name: string
+    text: string | ((context: {
+      agent?: { session: { id: SessionId; header: { origin?: 'subagent'; agentPreset?: string } } }
+    }) => string)
+  }
+  const promptSections: PromptSection[] = []
   const followups: string[] = []
   const pushNotice = (message: {
     content: { type: string; text: string }[]
@@ -85,6 +93,13 @@ async function harness(config: {
       : undefined),
   })
   ctx.provide('agentDefaultModel' as string, { currentSelection: () => ({ provider: 'mock', model: 'mock' }) })
+  ctx.provide('systemPrompt' as string, {
+    section: (section: PromptSection) => {
+      promptSections.push(section)
+      return () => {}
+    },
+    getSectionOrder: () => 100,
+  })
   ctx.provide('sessionTitle' as string, { rename: () => {} })
   ctx.provide('sessionProjections' as string, { register: async () => ({}) })
   const workspaces: string[] = []
@@ -109,8 +124,9 @@ async function harness(config: {
     maxWorkersPerBot: config.maxWorkersPerBot ?? 2,
     maxHandoffDepth: config.maxHandoffDepth ?? 3,
     workerTimeoutMinutes: config.workerTimeoutMinutes ?? 30,
+    leadInstructions: BOT_LEAD_INSTRUCTIONS,
   })
-  return { ctx, followups, workers, workspaces, toolDefs, instructions }
+  return { ctx, followups, workers, workspaces, toolDefs, instructions, promptSections }
 }
 
 describe('bot records', () => {
@@ -536,6 +552,30 @@ describe('tickets', () => {
     )
     expect(result.stage).toBe('failed')
     expect(String(result.summary)).toContain('ENOENT')
+  })
+
+  it('gives lead Sessions the bot-first instruction but not ticket workers', async () => {
+    const { ctx, promptSections } = await harness()
+    const section = promptSections.find(entry => entry.name === 'bot:lead')
+    expect(section).toBeDefined()
+    const text = typeof section!.text === 'function'
+      ? section!.text({ agent: { session: { id: ROUTER, header: {} } } })
+      : section!.text
+    expect(text).toContain('bot_create')
+    expect(text).toContain('bot_open_ticket')
+
+    await ctx.bots.create({ name: 'reviewer', job: 'Review', workspace: '/tmp/work', routerSession: ROUTER })
+    const ticket = await ctx.bots.openTicket({ routerSession: ROUTER, title: 'Work', instruction: 'Go.' })
+    const workerText = typeof section!.text === 'function'
+      ? section!.text({ agent: { session: { id: ticket.workerSession!, header: {} } } })
+      : section!.text
+    expect(workerText).toBe('')
+
+    const ask = (header: { origin?: 'subagent'; agentPreset?: string }): string => typeof section!.text === 'function'
+      ? section!.text({ agent: { session: { id: ROUTER, header } } })
+      : section!.text
+    expect(ask({ origin: 'subagent' })).toBe('')
+    expect(ask({ agentPreset: 'bot-router' })).toBe('')
   })
 
   it('records a stage timeline that the ticket tool returns', async () => {

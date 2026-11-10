@@ -19,6 +19,10 @@ kind: "package-reference"
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
 
 <a id="use-this-package"></a>
+## 默认行为
+
+挂载本服务的引导会话会收到一条固定的系统提示指令：多步骤或涉及多个方面的请求应通过 `bot_create` 与 `bot_open_ticket` 交给 Bot，而不是全部内联完成；小的单步修改与问题仍直接处理。工单执行者、子智能体子会话与 `bot-router` 会话不会收到它。部署可以用 `leadInstructions` 配置替换文案；空字符串则关闭该提示。
+
 ## 使用本包
 
 在同时提供 `storageDomain`、`tools`、`agents`、`agentDefaultModel`、`sessionTitle` 和 `workspaceRegistry` 的组合中挂载：
