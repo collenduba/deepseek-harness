@@ -190,6 +190,18 @@ function requireAbsolute(value: string, field: string): string {
   return text
 }
 
+/** Enter one stage and append it to the ticket's timeline. */
+function withStage(ticket: TicketRecord, stage: TicketStage, summary?: string): TicketRecord {
+  const at = now()
+  return {
+    ...ticket,
+    stage,
+    ...(summary === undefined ? {} : { summary }),
+    history: [...(ticket.history ?? []), { at, stage, ...(summary === undefined ? {} : { note: summary }) }],
+    updatedAt: at,
+  }
+}
+
 /** Current time as the ISO-8601 string every stored timestamp uses. */
 function now(): string {
   return new Date().toISOString()
@@ -446,6 +458,7 @@ export class BotRegistry extends Service {
       ...(parent === undefined
         ? {}
         : { parentTicket: parent.ticket.id, parentBotName: parent.bot.name, handoffDepth: parent.depth }),
+      history: [{ at: timestamp, stage: 'queued' }],
       createdAt: timestamp,
       updatedAt: timestamp,
     }
@@ -480,21 +493,15 @@ export class BotRegistry extends Service {
     try {
       const workerSession = await launchWorker(this.ctx, bot, ticket, this.memoriesOf(bot.id), origin)
       const launched = await this.ticketsTable.update(ticket.id, current => ({
-        ...current,
-        stage: 'working',
+        ...withStage(current, 'working'),
         workerSession,
-        updatedAt: now(),
       }))
       this.armBudget(ticket.id)
       return launched
     } catch (error: unknown) {
       this.ctx.logger.warn(`bot: worker launch for ticket '${ticket.id}' failed: ${String(error)}`)
-      return await this.ticketsTable.update(ticket.id, current => ({
-        ...current,
-        stage: 'failed',
-        summary: error instanceof Error ? error.message : String(error),
-        updatedAt: now(),
-      }))
+      return await this.ticketsTable.update(ticket.id, current =>
+        withStage(current, 'failed', error instanceof Error ? error.message : String(error)))
     }
   }
 
@@ -542,11 +549,8 @@ export class BotRegistry extends Service {
     const summary = requireText(report.summary, 'summary')
     const verdict = report.verdict
     const updated = await this.ticketsTable.update(ticketId, current => ({
-      ...current,
-      stage: report.stage,
-      summary,
+      ...withStage(current, report.stage, summary),
       ...(verdict === undefined ? {} : { verdict }),
-      updatedAt: now(),
     }))
     if (report.stage === 'failed') {
       for (const [id, dependent] of [...this.ticketsTable.entries()]) {
@@ -586,6 +590,17 @@ export class BotRegistry extends Service {
     await this.noticesTable.deleteMany(this.noticesOf(botId).map(notice => notice.id))
     await this.botsTable.delete(botId)
     return { name: bot.name, archivedTickets }
+  }
+
+  /**
+   * One ticket by id.
+   * @param ticketId - the ticket identity.
+   * @returns the stored ticket, including its stage timeline.
+   */
+  ticket(ticketId: TicketId): TicketRecord {
+    const ticket = this.ticketsTable.get(ticketId)
+    if (ticket === undefined) throw new Error(`unknown ticket '${ticketId}'`)
+    return ticket
   }
 
   /**
@@ -904,7 +919,7 @@ export class BotRegistry extends Service {
             const summary = 'worker is not running; the Host restarted or its Session ended'
             const updated = await this.ticketsTable.update(id, (current) => {
               if (current.stage !== 'working' && current.stage !== 'waiting') return current
-              return { ...current, stage: 'blocked', summary, updatedAt: now() }
+              return withStage(current, 'blocked', summary)
             })
             if (updated.stage === 'blocked' && updated.summary === summary) {
               await this.notifyRouter(updated, 'blocked', summary)
@@ -1012,6 +1027,56 @@ export class BotRegistry extends Service {
           return { botId: bot.id, name: bot.name, workspace: bot.workspace }
         },
         presentCall: args => ({ card: 'generic', title: 'bot_create', rawInput: args }),
+      })),
+
+      this.ctx.tools.register(defineTool({
+        name: 'bot_ticket',
+        description: 'Read one ticket with its stage timeline, verdict, and summary.',
+        parameters: {
+          ticket_id: { type: 'string', required: true, description: 'The ticket id.' },
+        },
+        output: {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              ticketId: { type: 'string', required: true },
+              title: { type: 'string', required: true },
+              stage: { type: 'string', required: true },
+              summary: { type: 'string' },
+              verdict: { type: 'string' },
+              history: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    at: { type: 'string', required: true },
+                    stage: { type: 'string', required: true },
+                    note: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+        },
+        execute: async (args) => {
+          const ticket = ctx.bots.ticket(args.ticket_id as TicketId)
+          return {
+            ticketId: ticket.id,
+            title: ticket.title,
+            stage: ticket.stage,
+            ...(ticket.summary === undefined ? {} : { summary: ticket.summary }),
+            ...(ticket.verdict === undefined ? {} : { verdict: ticket.verdict }),
+            history: (ticket.history ?? []).map(event => ({
+              at: event.at,
+              stage: event.stage,
+              ...(event.note === undefined ? {} : { note: event.note }),
+            })),
+          }
+        },
+        presentCall: args => ({ card: 'generic', title: 'bot_ticket', rawInput: args }),
       })),
 
       this.ctx.tools.register(defineTool({

@@ -24,7 +24,7 @@ A bot is a durable record, not a Session. One `bot` storage domain holds five ta
 | `approvals` | action, exact payload, SHA-256 digest, status, decision note |
 | `notices` | router notices with their delivery time |
 
-The domain moved through versions 1–13 as tables and optional fields were added; every version loads the ones before it.
+The domain moved through versions 1–14 as tables and optional fields were added; every version loads the ones before it.
 
 ### Sessions
 
@@ -95,7 +95,7 @@ The `bot` Session projection folds the logged tool calls, results, and notices i
 
 - Bots are auditable: every ticket names its mandate's origin, its worker, and its outcome; every approval names the digest it decided.
 - Unattended work is bounded: quiet hours, an author allowlist, observe-before-auto, and a shell gate that refuses unapproved commands.
-- The storage domain carries thirteen format versions. Each addition is compatible, but the schema and its migration surface grow with every feature.
+- The storage domain carries fourteen format versions. Each addition is compatible, but the schema and its migration surface grow with every feature.
 - Approvals are only enforced for guarded shell tools; other consequential actions still depend on the worker following the protocol.
 - Tool allowlists deny at call time, so the model still sees denied tools in its catalog and learns the restriction from the denial.
 - Source behaviour is polling only and stops with the Host, so a bot is not a hosted service.

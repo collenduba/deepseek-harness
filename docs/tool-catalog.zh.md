@@ -24,7 +24,7 @@
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-experimental-browser-use-stagehand-native` | `stagehand_act`、`stagehand_extract`、`stagehand_navigate`、`stagehand_observe`、`stagehand_screenshot`、`stagehand_tabs` | `ctx.browserUse`、`ctx.agents`、`ctx.tools`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-bot-source-github` | `bot_accept_candidate`, `bot_candidates` | `ctx.tools`, `ctx.bots`, `ctx.storageDomain` | `tool/call`、`tool/result`、`候选记录`、`bot_accept_candidate 时开工单` | - | - |
-| `@deepseek-ai/dsh-bot` | `bot_archive`, `bot_create`, `bot_decide_approval`, `bot_handoff`, `bot_list`, `bot_open_ticket`, `bot_remember`, `bot_report`, `bot_request_approval` | `ctx.tools`, `ctx.bots`, `ctx.storageDomain`, `ctx.agents`, `ctx.sessionProjections`, `ctx.workspaceRegistry`, `ctx.sessionTitle`, `ctx.agentDefaultModel` | `tool/call`、`tool/result`、`bot 与工单记录`、`bot_open_ticket 时创建执行会话` | - | - |
+| `@deepseek-ai/dsh-bot` | `bot_archive`, `bot_create`, `bot_decide_approval`, `bot_handoff`, `bot_list`, `bot_open_ticket`, `bot_remember`, `bot_report`, `bot_request_approval`, `bot_ticket` | `ctx.tools`, `ctx.bots`, `ctx.storageDomain`, `ctx.agents`, `ctx.sessionProjections`, `ctx.workspaceRegistry`, `ctx.sessionTitle`, `ctx.agentDefaultModel` | `tool/call`、`tool/result`、`bot 与工单记录`、`bot_open_ticket 时创建执行会话` | - | - |
 | `@deepseek-ai/dsh-action-cards` | `propose_action` | `ctx.tools`、`ctx.agents`、`ctx.sessionProjections`、`ctx.remoteAccess` | `tool/call`、`tool/result`、`plugin:action-cards/decision`、`user/message` | - | 只向加载过已注册卡片种类 Skill 的 Agent 声明；各种类的包注册自己的动作，个性化推荐 Bundle 提供随产品发布的种类。 |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`、`ctx.userQuestions` | `tool/call`、`tool/result after an answer or timeout`、`late user/message` | - | ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才启用前台超时与 pending 结果，同时问题仍可回答；timed 模式内 `timeout: -1` 让本次调用无限期阻塞。 |
 | `@deepseek-ai/dsh-tool-executor-ptc` | `run_code` | `ctx.workingDirectory (Agent executions)`、`ctx.tools`、`ctx.ptcRuntime`、`ctx.systemPrompt` | `tool/call`、`one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`、`tool/result` | - | PTC 执行器只向模型公开 run_code，并在运行时语言生成的 SDK 中声明其他可见能力。程序绑定按提交顺序进入共享的受守卫工具流水线；并行安全的函数体最多重叠 maxParallelSubCalls 个，嵌套结果保持与外层程序关联。最终超时时间与 maxSubCallsPerMinute 决定调用总额度；超限会终止程序。 |
@@ -848,6 +848,29 @@ Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/
   "required": [
     "action",
     "payload"
+  ]
+}
+```
+
+Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/src/index.ts)
+
+<a id="deepseek-aidsh-action-cards"></a>
+
+### `bot_ticket`
+
+读取一条工单及其阶段时间线、审阅结论与摘要。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "ticket_id": {
+      "type": "string",
+      "description": "The ticket id."
+    }
+  },
+  "required": [
+    "ticket_id"
   ]
 }
 ```

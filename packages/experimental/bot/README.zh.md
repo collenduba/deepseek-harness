@@ -44,12 +44,12 @@ kind: "package-reference"
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
-服务打开一个 `bot` 域，版本 13，包含五张表。版本 1 到版本 12 的存储原样加载。
+服务打开一个 `bot` 域，版本 14，包含五张表。版本 1 到版本 13 的存储原样加载。
 
 | 表 | 键 | 保存 |
 |---|---|---|
 | `bots` | `BotId` | 名字、职责、工作区、路由会话、可选的执行 preset、工具白名单、被禁止的 shell 命令模式与硬性底线动作、状态、时间戳 |
-| `tickets` | `TicketId` | 标题、指令、可选工作区、阻塞工单、验收标准、阶段、可选审阅结论、路由会话、执行会话、摘要、时间戳 |
+| `tickets` | `TicketId` | 标题、指令、可选工作区、阻塞工单、验收标准、阶段、可选审阅结论、阶段时间线、路由会话、执行会话、摘要、时间戳 |
 | `memories` | `BotMemoryId` | Bot、文本、创建时间，以及写下它的工单（若有） |
 | `approvals` | `BotApprovalId` | Bot、工单、动作、确切载荷、SHA-256 摘要、状态、决定备注 |
 | `notices` | `BotNoticeId` | Bot、工单、对话、正文、摘要、创建与投递时间 |
@@ -65,7 +65,7 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-四个工具一起注册在 `ctx.tools` 上：`bot_create` 接收 `name`、`job`、`workspace` 和可选的 `preset`；`bot_list` 没有参数；`bot_open_ticket` 接收 `title`、`instruction` 与可选的 `workspace`；`bot_report` 接收 `ticket_id`、来自 `waiting`、`ready`、`blocked` 和 `failed` 的 `stage`，以及一行 `summary`。每个结果都是模型无需解析散文就能读取的小型 JSON 对象。
+这些工具一起注册在 `ctx.tools` 上：`bot_create` 接收 `name`、`job`、`workspace` 和可选的 `preset`；`bot_list` 没有参数；`bot_open_ticket` 接收 `title`、`instruction` 与可选的 `workspace`；`bot_report` 接收 `ticket_id`、来自 `waiting`、`ready`、`blocked` 和 `failed` 的 `stage`、一行 `summary` 与可选的 `verdict`；`bot_ticket` 接收 `ticket_id` 并返回时间线。每个结果都是模型无需解析散文就能读取的小型 JSON 对象。
 
 #### Token 影响
 

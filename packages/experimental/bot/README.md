@@ -44,12 +44,12 @@ A conversation then drives one bot:
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-The service opens one `bot` domain, version 13, with five tables. Versions 1 through 12 load unchanged.
+The service opens one `bot` domain, version 14, with five tables. Versions 1 through 13 load unchanged.
 
 | Table | Key | Holds |
 |---|---|---|
 | `bots` | `BotId` | name, job, workspace, router Session, optional worker preset, tool allowlist, blocked shell command patterns, and hard-floor actions, status, timestamps |
-| `tickets` | `TicketId` | title, instruction, optional workspace, blocking tickets, acceptance criteria, stage, optional review verdict, router Session, worker Session, summary, timestamps |
+| `tickets` | `TicketId` | title, instruction, optional workspace, blocking tickets, acceptance criteria, stage, optional review verdict, stage timeline, router Session, worker Session, summary, timestamps |
 | `memories` | `BotMemoryId` | bot, text, creation time, and the ticket whose worker wrote it |
 | `approvals` | `BotApprovalId` | bot, ticket, action, exact payload, SHA-256 digest, status, decision note |
 | `notices` | `BotNoticeId` | bot, ticket, conversation, text, summary, creation and delivery times |
@@ -65,7 +65,7 @@ A ticket moves `queued` → `working` → `waiting` or `ready`, or to `blocked` 
 
 #### What the model sees
 
-The four tools are declared together on `ctx.tools`: `bot_create` takes `name`, `job`, `workspace`, and an optional `preset`; `bot_list` takes no parameters; `bot_open_ticket` takes `title`, `instruction`, and an optional `workspace`; `bot_report` takes `ticket_id`, a `stage` from `waiting`, `ready`, `blocked`, and `failed`, and a one-line `summary`. Each result is a small JSON object the model can read without parsing prose.
+The tools are declared together on `ctx.tools`: `bot_create` takes `name`, `job`, `workspace`, and an optional `preset`; `bot_list` takes no parameters; `bot_open_ticket` takes `title`, `instruction`, and an optional `workspace`; `bot_report` takes `ticket_id`, a `stage` from `waiting`, `ready`, `blocked`, and `failed`, a one-line `summary`, and an optional `verdict`; `bot_ticket` takes `ticket_id` and returns the timeline. Each result is a small JSON object the model can read without parsing prose.
 
 #### Token effect
 

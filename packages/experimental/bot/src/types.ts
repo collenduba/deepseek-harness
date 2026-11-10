@@ -28,6 +28,16 @@ export type BotNoticeId = Branded<'BotNoticeId'>
  */
 export type TicketStage = 'queued' | 'working' | 'waiting' | 'ready' | 'blocked' | 'failed'
 
+/** One recorded stage transition on a ticket. */
+export interface TicketEvent {
+  /** ISO-8601 time of the transition. */
+  readonly at: string
+  /** Stage the ticket entered. */
+  readonly stage: TicketStage
+  /** One line explaining the transition. */
+  readonly note?: string | undefined
+}
+
 /** A review worker's machine-readable outcome for its ticket. */
 export type TicketVerdict = 'pass' | 'fail'
 
@@ -98,6 +108,8 @@ export interface TicketRecord {
   readonly blockedBy?: readonly TicketId[] | undefined
   /** Acceptance criteria the worker must satisfy. */
   readonly acceptance?: readonly string[] | undefined
+  /** Stage transitions, oldest first. */
+  readonly history?: readonly TicketEvent[] | undefined
   /** ISO-8601 creation time. */
   readonly createdAt: string
   /** ISO-8601 time of the latest write. */
