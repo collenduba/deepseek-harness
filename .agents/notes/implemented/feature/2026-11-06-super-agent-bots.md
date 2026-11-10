@@ -37,7 +37,8 @@ The Session that calls `bot_create` becomes the bot's router. Each ticket gets i
 | `bot_create` | any Session | Binds the conversation as a bot's router, with an optional preset, tool allowlist, and hard-floor actions. |
 | `bot_list` | any | Bots and open ticket counts. |
 | `bot_open_ticket` | router | Opens a ticket and launches its worker. |
-| `bot_report` | worker | Records `waiting`, `ready`, `blocked`, or `failed` with a summary. |
+| `bot_report` | worker | Records `waiting`, `ready`, `blocked`, or `failed` with a summary and an optional verdict. |
+| `bot_ticket` | any | Reads one ticket with its stage timeline, verdict, and summary. |
 | `bot_remember` | router or worker | Writes one durable note that later workers read. |
 | `bot_handoff` | worker | Opens a ticket on another active bot and records the source. |
 | `bot_request_approval` | worker | Stores the exact payload with its digest and notifies the router. |

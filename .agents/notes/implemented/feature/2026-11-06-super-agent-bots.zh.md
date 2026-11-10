@@ -37,7 +37,8 @@ Bot 是持久记录，不是会话。一个 `bot` 存储域持有五张表：
 | `bot_create` | 任意会话 | 把当前对话绑定为 Bot 的路由会话，可带可选的 preset、工具白名单与硬性底线动作。 |
 | `bot_list` | 任意 | 列出 Bot 与未结束工单数。 |
 | `bot_open_ticket` | 路由会话 | 开工单并启动执行者。 |
-| `bot_report` | 执行者 | 记录 `waiting`、`ready`、`blocked` 或 `failed` 与摘要。 |
+| `bot_report` | 执行者 | 记录 `waiting`、`ready`、`blocked` 或 `failed`、摘要与可选审阅结论。 |
+| `bot_ticket` | 任意 | 读取一条工单及其阶段时间线、审阅结论与摘要。 |
 | `bot_remember` | 路由或执行者 | 写入一条之后执行者会读到的持久笔记。 |
 | `bot_handoff` | 执行者 | 在另一个活跃 Bot 上开工单并记录来源。 |
 | `bot_request_approval` | 执行者 | 保存确切载荷与摘要并通知路由会话。 |

@@ -197,7 +197,7 @@ function withStage(ticket: TicketRecord, stage: TicketStage, summary?: string): 
     ...ticket,
     stage,
     ...(summary === undefined ? {} : { summary }),
-    history: [...(ticket.history ?? []), { at, stage, ...(summary === undefined ? {} : { note: summary }) }],
+    history: [...(ticket.history ?? []), { at, stage, ...(summary === undefined ? {} : { note: summary }) }].slice(-100),
     updatedAt: at,
   }
 }
@@ -558,7 +558,7 @@ export class BotRegistry extends Service {
         if (!dependent.blockedBy.some(blockerId => String(blockerId) === String(ticketId))) continue
         const summary = `blocked by ticket ${ticketId}, which failed`
         const updatedDependent = await this.ticketsTable.update(id, current =>
-          current.stage === 'queued' ? { ...current, stage: 'blocked', summary, updatedAt: now() } : current)
+          current.stage === 'queued' ? withStage(current, 'blocked', summary) : current)
         if (updatedDependent.stage === 'blocked') await this.notifyRouter(updatedDependent, 'blocked', summary)
       }
     }
@@ -805,7 +805,7 @@ export class BotRegistry extends Service {
       }))
       if (ticket.stage === 'waiting') {
         const resumed = await this.ticketsTable.update(current.ticketId, row =>
-          row.stage === 'waiting' ? { ...row, stage: 'working', updatedAt: now() } : row)
+          row.stage === 'waiting' ? withStage(row, 'working') : row)
         if (resumed.stage === 'working') this.armBudget(current.ticketId)
       }
     } catch (error: unknown) {
@@ -870,7 +870,7 @@ export class BotRegistry extends Service {
       : `worker exceeded the ${this.workerTimeoutMinutes}-minute budget`
     const updated = await this.ticketsTable.update(ticketId, (current) => {
       if (current.stage !== 'working' && current.stage !== 'waiting') return current
-      return { ...current, stage: 'blocked', summary, updatedAt: now() }
+      return withStage(current, 'blocked', summary)
     })
     if (updated.stage !== 'blocked' || updated.summary !== summary) return
     const committed = this.ticketsTable.get(ticketId)

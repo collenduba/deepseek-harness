@@ -854,8 +854,6 @@ Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/
 
 Source: [`packages/experimental/bot/src/index.ts`](../packages/experimental/bot/src/index.ts)
 
-<a id="deepseek-aidsh-action-cards"></a>
-
 ### `bot_ticket`
 
 读取一条工单及其阶段时间线、审阅结论与摘要。
